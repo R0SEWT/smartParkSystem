@@ -1,0 +1,61 @@
+flowchart LR
+  %% === Fuentes / Usuarios ===
+  U[Usuarios Web/App]:::actor
+  SIM["Simulador de Sensores<br/>(payload JSON: sensor_id, ts, occupied)"]:::ext
+
+  %% === Frontend ===
+  SWA["Azure Static Web Apps<br/>(SPA/Dashboard)"]:::fe
+
+  %% === Capa API / Ingesta ===
+  APISVC["Azure App Service<br/>Backend API (Flask/Node)"]:::api
+  FNHTT["Azure Functions<br/>HTTP Trigger (/sensor_event)"]:::api
+  FNTMR["Azure Functions<br/>Timer Trigger (sim ingest)"]:::api
+  SB["Azure Service Bus (opcional)<br/>cola topics para burst"]:::mq
+
+  %% === Datos ===
+  subgraph AZ[Azure - Brazil South]
+    PG[("Azure Database for PostgreSQL<br/>Flexible Server + PostGIS")]:::db
+    KV["Azure Key Vault<br/>(secrets: connstrings, keys)"]:::sec
+    MON[Azure Monitor + Log Analytics]:::obs
+    VNET[(VNet + Subnets)]:::net
+    APISVC
+    FNHTT
+    FNTMR
+    SB
+    SWA
+  end
+
+  subgraph ATLAS["MongoDB Atlas (Azure, tier M0)"]
+    MDB[(Cluster MongoDB)]:::nosql
+  end
+
+  %% === Flujos principales ===
+  U -->|"HTTPS/HTTP2"| SWA
+  SWA -->|"REST/JSON"| APISVC
+
+  SIM -->|"POST /sensor_event"| FNHTT
+  FNTMR -->|"payload sintético"| FNHTT
+  FNHTT -->|"enqueue (opcional)"| SB
+  SB -->|workers| APISVC
+
+  APISVC -->|"INSERT/SELECT<br/>TLS 1.2+"| PG
+  APISVC -->|"INSERT/QUERY<br/>TLS 1.2+"| MDB
+
+  %% === Observabilidad y secretos ===
+  APISVC -. "App Settings ->" .- KV
+  FNHTT -. "Function Settings ->" .- KV
+  APISVC -. "metrics/logs" .-> MON
+  FNHTT -. "metrics/logs" .-> MON
+  PG -. "metrics/logs" .-> MON
+
+  %% === Estilos ===
+  classDef actor fill:#fff,stroke:#333,stroke-width:1px,color:#111;
+  classDef ext fill:#f9f9f9,stroke:#bbb,stroke-width:1px,color:#333;
+  classDef fe fill:#e9f5ff,stroke:#3b82f6,stroke-width:2px,color:#0b4aa8;
+  classDef api fill:#eefbf3,stroke:#22c55e,stroke-width:2px,color:#126b3a;
+  classDef db fill:#fff7ed,stroke:#f59e0b,stroke-width:2px,color:#8a5800;
+  classDef nosql fill:#fff0f6,stroke:#ec4899,stroke-width:2px,color:#8a104b;
+  classDef mq fill:#f5f3ff,stroke:#8b5cf6,stroke-width:2px,color:#4b2db4;
+  classDef sec fill:#f0fdfa,stroke:#14b8a6,stroke-width:2px,color:#065f5b;
+  classDef obs fill:#f3f4f6,stroke:#6b7280,stroke-width:2px,color:#374151;
+  classDef net fill:#fafafa,stroke:#9ca3af,stroke-width:2px,color:#4b5563;
