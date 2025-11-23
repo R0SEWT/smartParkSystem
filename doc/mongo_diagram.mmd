@@ -1,0 +1,28 @@
+erDiagram
+
+    LOG {
+        string _id
+        datetime timestamp
+        string level
+        string message
+        string service
+        string module
+        string userId
+        string correlationId
+        object context
+        object metadata
+        string ip
+    }
+
+    USER {
+        string userId
+        string username
+    }
+
+    SERVICE {
+        string service
+        string description
+    }
+
+    LOG ||--o{ USER : "ref (userId)"
+    LOG ||--o{ SERVICE : "ref (service)"
