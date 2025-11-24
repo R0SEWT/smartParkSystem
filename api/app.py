@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from importlib import import_module
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pymongo import MongoClient, ASCENDING, DESCENDING
@@ -7,12 +8,15 @@ from pymongo.errors import PyMongoError
 from psycopg_pool import ConnectionPool
 from models import SensorEvent
 import certifi
+from pathlib import Path
+import sys
 
 
 # ---- Config (Key Vault References en Azure inyectan variables) ----
 PG_CONN = os.environ.get("PG_CONN")
 MONGODB_URI = os.environ.get("MONGODB_URI")
 ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "*")
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
 
 if not PG_CONN:
     raise RuntimeError("PG_CONN no está configurado")
@@ -44,6 +48,11 @@ _ensure_mongo_indexes()
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
+
+
+# Permitir importar seeds desde tools/
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT / "tools"))
 
 
 
@@ -99,6 +108,12 @@ OPENAPI_SPEC = {
                     {"name": "sensor_id", "in": "query", "schema": {"type": "integer"}}
                 ],
                 "responses": {"200": {"description": "ok"}}
+            }
+        },
+        "/admin/reset": {
+            "post": {
+                "summary": "Reset DB y seed (requiere X-Admin-Token)",
+                "responses": {"200": {"description": "ok"}, "401": {"description": "unauthorized"}}
             }
         }
     }
@@ -282,6 +297,42 @@ def registro_data_list():
         for r in rows
     ]
     return jsonify({"ok": True, "count": len(reg), "items": reg})
+
+
+@app.post("/admin/reset")
+def admin_reset():
+    if not ADMIN_TOKEN:
+        return jsonify({"ok": False, "error": "ADMIN_TOKEN no configurado en el servidor"}), 501
+
+    token = request.headers.get("X-Admin-Token") or request.args.get("token")
+    if token != ADMIN_TOKEN:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    sql_path = ROOT / "api" / "db_init.sql"
+    try:
+        sql = sql_path.read_text()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"no se pudo leer db_init.sql: {e}"}), 500
+
+    try:
+        import psycopg
+
+        with psycopg.connect(PG_CONN, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"pg reset: {e}"}), 500
+
+    seeded = False
+    if seed_postgres and seed_mongo:
+        try:
+            seed_postgres()
+            seed_mongo()
+            seeded = True
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"seed error: {e}"}), 500
+
+    return jsonify({"ok": True, "seeded": seeded})
 
 
 @app.get("/openapi.json")

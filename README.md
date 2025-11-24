@@ -31,6 +31,8 @@ tools/             # scripts auxiliares para datos y simulación
    pip install -r requirements.txt
    # opcional: CORS para frontend en localhost:5173
    export ALLOWED_ORIGINS=http://localhost:5173
+   # opcional: token para endpoint /admin/reset
+   export ADMIN_TOKEN=superseguro
    export PG_CONN="postgresql://pgadmin:PASS@HOST:5432/smartpark?sslmode=require"
    export MONGODB_URI="mongodb+srv://USER:PASS@CLUSTER/"
    python app.py  # o ./startup.sh
