@@ -58,6 +58,22 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}}, supports_credentials=True)
 
 
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        origin = request.headers.get("Origin", "")
+        allow_origin = "*"
+        resp = make_response("", 200)
+        resp.headers["Access-Control-Allow-Origin"] = allow_origin
+        resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = request.headers.get(
+            "Access-Control-Request-Headers", "Content-Type,Authorization"
+        )
+        resp.headers["Access-Control-Allow-Credentials"] = "true"
+        resp.headers["Vary"] = "Origin"
+        return resp
+
+
 @app.after_request
 def ensure_cors_headers(response):
     origin = request.headers.get("Origin")
