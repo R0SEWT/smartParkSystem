@@ -221,7 +221,5 @@ azure.config
 .log 
 .env
 api/db_init.sql
-frontend/package.json
-frontend/package-lock.json
 api/db_init.sql
 frontend/SmartParkSysten.PublishSettings
