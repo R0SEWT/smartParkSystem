@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 from importlib import import_module
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.errors import PyMongoError
@@ -54,7 +54,28 @@ def _ensure_mongo_indexes():
 _ensure_mongo_indexes()
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
+CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}}, supports_credentials=True)
+
+
+@app.after_request
+def ensure_cors_headers(response):
+    origin = request.headers.get("Origin")
+    allow_origin = None
+
+    if ALLOWED_ORIGINS == "*":
+        allow_origin = "*"
+    elif origin and isinstance(ALLOWED_ORIGINS, list) and origin in ALLOWED_ORIGINS:
+        allow_origin = origin
+
+    if allow_origin:
+        response.headers["Access-Control-Allow-Origin"] = allow_origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Headers"] = (
+            request.headers.get("Access-Control-Request-Headers", "Content-Type,Authorization")
+        )
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+        response.headers["Vary"] = "Origin"
+    return response
 
 
 # Permitir importar seeds desde tools/
