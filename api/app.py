@@ -62,7 +62,7 @@ CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}}, supports_credentials=
 def handle_preflight():
     if request.method == "OPTIONS":
         origin = request.headers.get("Origin", "")
-        allow_origin = "*"
+        allow_origin = origin or "*"
         resp = make_response("", 200)
         resp.headers["Access-Control-Allow-Origin"] = allow_origin
         resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
@@ -77,21 +77,15 @@ def handle_preflight():
 @app.after_request
 def ensure_cors_headers(response):
     origin = request.headers.get("Origin")
-    allow_origin = None
-
-    if ALLOWED_ORIGINS == "*":
-        allow_origin = "*"
-    elif origin and isinstance(ALLOWED_ORIGINS, list) and origin in ALLOWED_ORIGINS:
-        allow_origin = origin
-
-    if allow_origin:
-        response.headers["Access-Control-Allow-Origin"] = allow_origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers["Access-Control-Allow-Headers"] = (
-            request.headers.get("Access-Control-Request-Headers", "Content-Type,Authorization")
-        )
-        response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
-        response.headers["Vary"] = "Origin"
+    # Para forzar CORS en Azure App Service, devuelve siempre un ACAO. Si hay Origin, refléjalo; si no, usa *.
+    allow_origin = origin or "*"
+    response.headers["Access-Control-Allow-Origin"] = allow_origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Headers"] = (
+        request.headers.get("Access-Control-Request-Headers", "Content-Type,Authorization")
+    )
+    response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    response.headers["Vary"] = "Origin"
     return response
 
 
