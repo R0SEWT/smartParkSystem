@@ -76,3 +76,17 @@ tools/             # scripts auxiliares para datos y simulación
 - Empaqueta `api/` y publícalo con `az webapp deployment source config-zip`.
 - Configura `PG_CONN` y `MONGODB_URI` como referencias a Key Vault en la Web App.
 - Usa Atlas M0 para Mongo y PostgreSQL Flexible Server para datos relacionales.
+
+### Frontend: despliegue en Azure App Service
+- **Servicio**: Web App Linux (plan `asp-smartpark-b1`) sirviendo únicamente assets estáticos de `frontend/dist`. Dominio generado: `https://smartparksysten.azurewebsites.net`.
+- **Backend**: por defecto el build usa `.env.production` con `VITE_API_BASE=https://app-smartpark-api.azurewebsites.net`. Para entorno local sigue existiendo `.env.local` si quieres apuntar a `http://localhost:8080`.
+- **Build**: `cd frontend && npm ci && npm run build` (o `npm run build -- --base=/` si usas rutas relativas). Output final queda bajo `frontend/dist`.
+- **Empaquetado y despliegue manual**:
+  ```bash
+  cd frontend
+  npm ci && npm run build
+  cd dist && zip -r ../dist.zip .
+  az webapp deploy -g "$RG" -n smartparksysten --src-path ../dist.zip --type static
+  ```
+- **CI/CD (GitHub Actions)**: el workflow [`frontend-appservice.yml`](.github/workflows/frontend-appservice.yml) compila (`npm ci && npm run build`) y publica `frontend/dist` usando `azure/webapps-deploy@v3`. Exporta el *publish profile* de la Web App y guárdalo como secreto `AZURE_WEBAPP_PUBLISH_PROFILE`; el job también inyecta `VITE_API_BASE` con el mismo valor que `.env.production`.
+- **CORS**: agrega `https://smartparksysten.azurewebsites.net` (y cualquier custom domain que asocies) al `ALLOWED_ORIGINS` del backend en App Service para evitar bloqueos del navegador.
