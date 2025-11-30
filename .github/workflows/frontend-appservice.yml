@@ -36,10 +36,14 @@ jobs:
         env:
           VITE_API_BASE: ${{ env.API_BASE }}
         run: npm run build
+      - name: Archive build output
+        run: |
+          cd dist
+          zip -r ../front-dist.zip .
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.WEBAPP_NAME }}
-          package: frontend/dist
+          package: frontend/front-dist.zip
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
