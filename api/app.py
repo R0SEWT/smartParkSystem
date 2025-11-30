@@ -35,6 +35,7 @@ col_events_raw = mdb["events_raw"]
 col_meta_sensors = mdb["sensors_meta"]  # opcional para metadata por sensor
 
 
+
 # ---- Crear índices si no existen (idempotente) ----
 def _ensure_mongo_indexes():
     try:
@@ -157,6 +158,13 @@ def healthzdb():
 
     ok = pg_ok and mongo_ok
     status = 200 if ok else 503   # importante: NO 500 → 503 = service unavailable
+    
+    # validar cors
+    origin = request.headers.get("Origin")
+    if origin not in ALLOWED_ORIGINS:
+        ok = False
+        status = 503
+        errors["cors"] = f"origen no permitido: {origin}"
 
     return jsonify({
         "ok": ok,
