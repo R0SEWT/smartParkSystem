@@ -15,14 +15,20 @@ import sys
 # ---- Config (Key Vault References en Azure inyectan variables) ----
 PG_CONN = os.environ.get("PG_CONN")
 MONGODB_URI = os.environ.get("MONGODB_URI")
-ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "*")
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
+raw_allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*")
 
 if not PG_CONN:
     raise RuntimeError("PG_CONN no está configurado")
 if not MONGODB_URI:
     raise RuntimeError("MONGODB_URI no está configurado")
-ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "*")
+
+if raw_allowed_origins.strip() == "*":
+    ALLOWED_ORIGINS = "*"
+else:
+    ALLOWED_ORIGINS = [origin.strip() for origin in raw_allowed_origins.split(",") if origin.strip()]
+
+print(f"[BOOT] ALLOWED_ORIGINS={ALLOWED_ORIGINS}")
 
 # ---- Postgres Pool ----
 pg_pool = ConnectionPool(PG_CONN, min_size=1, max_size=6, kwargs={"autocommit": True})
@@ -158,13 +164,7 @@ def healthzdb():
 
     ok = pg_ok and mongo_ok
     status = 200 if ok else 503   # importante: NO 500 → 503 = service unavailable
-    
-    # validar cors
-    origin = request.headers.get("Origin")
-    if origin not in ALLOWED_ORIGINS:
-        ok = False
-        status = 503
-        errors["cors"] = f"origen no permitido: {origin}"
+
 
     return jsonify({
         "ok": ok,
