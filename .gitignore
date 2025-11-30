@@ -223,3 +223,4 @@ azure.config
 api/db_init.sql
 api/db_init.sql
 frontend/SmartParkSysten.PublishSettings
+api/app-smartpark-api.PublishSettings

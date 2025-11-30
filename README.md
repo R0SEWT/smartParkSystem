@@ -89,4 +89,11 @@ tools/             # scripts auxiliares para datos y simulación
   az webapp deploy -g "$RG" -n smartparksysten --src-path ../dist.zip --type static
   ```
 - **CI/CD (GitHub Actions)**: el workflow [`frontend-appservice.yml`](.github/workflows/frontend-appservice.yml) compila (`npm ci && npm run build`) y publica `frontend/dist` usando `azure/webapps-deploy@v3`. Exporta el *publish profile* de la Web App y guárdalo como secreto `AZURE_WEBAPP_PUBLISH_PROFILE`; el job también inyecta `VITE_API_BASE` con el mismo valor que `.env.production`.
-- **CORS**: agrega `https://smartparksysten.azurewebsites.net` (y cualquier custom domain que asocies) al `ALLOWED_ORIGINS` del backend en App Service para evitar bloqueos del navegador.
+- **CORS**: define la variable `ALLOWED_ORIGINS` en la Web App del backend con `https://smartparksysten.azurewebsites.net` y cualquier otro dominio (separados por coma) para evitar errores CORS.
+
+### Backend: despliegue continuo API Flask
+- **Workflow**: [`api-appservice.yml`](.github/workflows/api-appservice.yml) (GitHub Actions) empaca el directorio `api/` como zip y lo publica en `app-smartpark-api`.
+- **Configuración necesaria**:
+  - Secreto `AZURE_WEBAPP_PUBLISH_PROFILE_API` con el *publish profile* de la Web App backend (igual que el frontend pero para `app-smartpark-api`).
+  - App Settings en Azure: `PG_CONN`, `MONGODB_URI`, `ALLOWED_ORIGINS` (incluye `https://smartparksysten.azurewebsites.net`), `ADMIN_TOKEN` (opcional) y cualquier var adicional.
+- **Ejecución**: dispara al hacer push en `api/**` o manualmente desde Actions. El zip despliega `app.py` y `startup.sh`; App Service detecta Python 3.10 y ejecuta `gunicorn`/`flask` según configuración.
