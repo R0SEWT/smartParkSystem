@@ -16,7 +16,8 @@ import sys
 PG_CONN = os.environ.get("PG_CONN")
 MONGODB_URI = os.environ.get("MONGODB_URI")
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
-raw_allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*")
+DEFAULT_ALLOWED_ORIGINS = "https://smartparksysten.azurewebsites.net"
+raw_allowed_origins = os.environ.get("ALLOWED_ORIGINS", DEFAULT_ALLOWED_ORIGINS)
 
 if not PG_CONN:
     raise RuntimeError("PG_CONN no está configurado")
