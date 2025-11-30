@@ -15,6 +15,13 @@ const badges = {
   libre: "bg-emerald-100 text-emerald-700 border-emerald-300"
 };
 
+const CAMPUS = [
+  { code: "MON", name: "Monterrico", accent: "from-cyan-500 to-emerald-500" },
+  { code: "SMG", name: "San Miguel", accent: "from-orange-500 to-amber-400" },
+  { code: "SIZ", name: "San Isidro", accent: "from-blue-600 to-indigo-500" },
+  { code: "VIL", name: "Villa", accent: "from-rose-500 to-pink-400" }
+];
+
 function useAsync<T>(fn: () => Promise<T>, deps: unknown[]) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,7 +112,7 @@ function LastEvents({ events, loading }: { events: LastEvent[]; loading: boolean
 
 function App() {
   const [estacionamientoId, setEstacionamientoId] = useState<string>("");
-  const [limit, setLimit] = useState<number>(20);
+  const [limit, setLimit] = useState<number>(200);
 
   const status = useAsync(() => api.statusOverview(), []);
   const registros = useAsync(
@@ -116,38 +123,91 @@ function App() {
   const lastEvents = useMemo(() => (status.data?.last_events as LastEvent[]) || [], [status.data]);
   const regItems = registros.data?.items || [];
 
+  const latestBySensor = useMemo(() => {
+    const map = new Map<number, RegistroData>();
+    for (const item of regItems) {
+      const prev = map.get(item.sensor_id);
+      const prevDate = prev?.created_at ? new Date(prev.created_at).getTime() : 0;
+      const currDate = item.created_at ? new Date(item.created_at).getTime() : 0;
+      if (!prev || currDate >= prevDate) {
+        map.set(item.sensor_id, item);
+      }
+    }
+    return map;
+  }, [regItems]);
+
+  const campusCards = useMemo(() => {
+    return CAMPUS.map((c) => {
+      const sensors = Array.from(latestBySensor.values()).filter((r) => r.estacionamiento_id?.startsWith(c.code));
+      const total = sensors.length;
+      const ocupados = sensors.filter((r) => r.estado === "ocupado").length;
+      const libres = total - ocupados;
+      const ratio = total ? Math.round((ocupados / total) * 100) : 0;
+      const lastUpdated = sensors.reduce((acc, r) => {
+        const t = r.created_at ? new Date(r.created_at).getTime() : 0;
+        return t > acc ? t : acc;
+      }, 0);
+      return {
+        ...c,
+        total,
+        ocupados,
+        libres,
+        ratio,
+        lastUpdated
+      };
+    });
+  }, [latestBySensor]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 text-slate-900">
-      <header className="border-b border-slate-200 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+      <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-slate-500">SmartPark</p>
-            <h1 className="text-xl font-bold text-ink">Control de Parking</h1>
+            <h1 className="text-2xl font-bold text-ink">Control de Parking · 4 sedes</h1>
+            <p className="text-sm text-slate-500">Monterrico, San Miguel, San Isidro, Villa</p>
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-600">
-            <span className="inline-flex h-3 w-3 rounded-full bg-emerald-400"></span>
+            <span className="inline-flex h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_0_6px_rgba(16,185,129,0.2)]"></span>
             API conectada
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6 space-y-6">
-        <section className="grid gap-4 sm:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Sedes</p>
-            <p className="mt-2 text-3xl font-bold text-ink">4</p>
-            <p className="text-sm text-slate-500">Operando</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Últimos eventos</p>
-            <p className="mt-2 text-3xl font-bold text-ink">{lastEvents.length}</p>
-            <p className="text-sm text-slate-500">Mongo crudo</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-xs uppercase tracking-wide text-slate-500">Registros</p>
-            <p className="mt-2 text-3xl font-bold text-ink">{registros.data?.count ?? 0}</p>
-            <p className="text-sm text-slate-500">Postgres normalizado</p>
-          </div>
+      <main className="mx-auto max-w-6xl px-4 py-6 space-y-8">
+        <section className="grid gap-4 md:grid-cols-2">
+          {campusCards.map((c) => (
+            <div
+              key={c.code}
+              className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+            >
+              <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${c.accent}`} />
+              <div className="flex items-start justify-between px-5 py-4">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">{c.code}</p>
+                  <h2 className="text-lg font-semibold text-ink">{c.name}</h2>
+                  <p className="text-sm text-slate-500">
+                    {c.total} sensores · {c.libres} libres / {c.ocupados} ocupados
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-3xl font-bold text-ink">{c.ratio}%</p>
+                  <p className="text-xs text-slate-500">ocupación</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 px-5 pb-4 text-xs text-slate-500">
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-emerald-700 border border-emerald-200">
+                  libres {c.libres}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-1 text-red-700 border border-red-200">
+                  ocupados {c.ocupados}
+                </span>
+                <span className="ml-auto">
+                  {c.lastUpdated ? `actualizado ${new Date(c.lastUpdated).toLocaleTimeString()}` : "sin datos"}
+                </span>
+              </div>
+            </div>
+          ))}
         </section>
 
         <section className="grid gap-6 lg:grid-cols-3">
@@ -158,7 +218,7 @@ function App() {
                 <input
                   value={estacionamientoId}
                   onChange={(e) => setEstacionamientoId(e.target.value)}
-                  placeholder="EST-001"
+                  placeholder="MON-1A"
                   className="mt-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
                 />
               </div>
@@ -185,6 +245,12 @@ function App() {
                 {status.loading && <span className="text-xs text-slate-500">Cargando...</span>}
               </div>
               <LastEvents events={lastEvents} loading={status.loading} />
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h3 className="text-sm font-semibold text-ink">Resumen</h3>
+              <p className="text-sm text-slate-600 mt-1">
+                Datos en vivo agrupados por sede. Los sensores en Monterrico y San Miguel alternan tipo <span className="font-semibold">lorawan</span> / <span className="font-semibold">ultrasonico</span> (config en seeds).
+              </p>
             </div>
           </div>
         </section>

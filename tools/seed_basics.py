@@ -8,7 +8,11 @@ import json
 
 import psycopg
 from psycopg.rows import dict_row
-from psycopg.extras import execute_values
+
+try:
+    from psycopg.extras import execute_values
+except ImportError:
+    execute_values = None
 from pymongo import MongoClient
 
 PG_CONN = os.environ["PG_CONN"]
@@ -130,84 +134,141 @@ def seed_postgres():
                 sensor_rows.append((est_id, sid_counter, tipo))
 
         if sensor_rows:
-            execute_values(
-                cur,
-                """
-                INSERT INTO sensor (
-                  id, estacionamiento_id, estado_funcionamiento, fabricante, modelo,
-                  fecha_instalacion, fecha_mantenimiento, version_firmware, config, created_by
+            values = [
+                (
+                    sid,
+                    est_id,
+                    "operativo",
+                    "Acme",
+                    "SP-1",
+                    install_dt,
+                    maint_dt,
+                    "1.0.0",
+                    json.dumps({"tipo": tipo} if tipo else {}),
+                    "seed",
                 )
-                OVERRIDING SYSTEM VALUE
-                VALUES %s
-                ON CONFLICT (id) DO NOTHING;
-                """,
-                [
-                    (
-                        sid,
-                        est_id,
-                        "operativo",
-                        "Acme",
-                        "SP-1",
-                        install_dt,
-                        maint_dt,
-                        "1.0.0",
-                        json.dumps({"tipo": tipo} if tipo else {}),
-                        "seed",
+                for est_id, sid, tipo in sensor_rows
+            ]
+            if execute_values:
+                execute_values(
+                    cur,
+                    """
+                    INSERT INTO sensor (
+                      id, estacionamiento_id, estado_funcionamiento, fabricante, modelo,
+                      fecha_instalacion, fecha_mantenimiento, version_firmware, config, created_by
                     )
-                    for est_id, sid, tipo in sensor_rows
-                ],
-            )
+                    OVERRIDING SYSTEM VALUE
+                    VALUES %s
+                    ON CONFLICT (id) DO NOTHING;
+                    """,
+                    values,
+                )
+            else:
+                for v in values:
+                    cur.execute(
+                        """
+                        INSERT INTO sensor (
+                          id, estacionamiento_id, estado_funcionamiento, fabricante, modelo,
+                          fecha_instalacion, fecha_mantenimiento, version_firmware, config, created_by
+                        )
+                        OVERRIDING SYSTEM VALUE
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (id) DO NOTHING;
+                        """,
+                        v,
+                    )
 
         # Gateways (uno por sensor)
         cur.execute("SELECT id, estacionamiento_id FROM sensor;")
         sensor_rows_full = cur.fetchall()
         sensor_ids = [row["id"] for row in sensor_rows_full]
         if sensor_ids:
-            execute_values(
-                cur,
-                """
-                INSERT INTO gateway (sensor_id, serial, modelo, tipo_conexion, estado, ultima_comunicacion, created_by)
-                VALUES %s
-                ON CONFLICT DO NOTHING;
-                """,
-                [(sid, f"GW-{sid}", "GW-Edge", "ethernet", "online", now, "seed") for sid in sensor_ids],
-            )
+            gw_values = [(sid, f"GW-{sid}", "GW-Edge", "ethernet", "online", now, "seed") for sid in sensor_ids]
+            if execute_values:
+                execute_values(
+                    cur,
+                    """
+                    INSERT INTO gateway (sensor_id, serial, modelo, tipo_conexion, estado, ultima_comunicacion, created_by)
+                    VALUES %s
+                    ON CONFLICT DO NOTHING;
+                    """,
+                    gw_values,
+                )
+            else:
+                for v in gw_values:
+                    cur.execute(
+                        """
+                        INSERT INTO gateway (sensor_id, serial, modelo, tipo_conexion, estado, ultima_comunicacion, created_by)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT DO NOTHING;
+                        """,
+                        v,
+                    )
 
         # Reservas de ejemplo
         cur.execute("SELECT id FROM usuario WHERE email = 'oscar.op@example.com';")
-        usuario_id = cur.fetchone()["id"]
-        cur.execute(
-            """
-            INSERT INTO reserva (usuario_id, estacionamiento_id, hora_inicio, hora_fin, estado, fecha_creacion, created_by)
-            VALUES (%s, 'EST-001', %s, %s, 'confirmada', %s, 'seed')
-            ON CONFLICT DO NOTHING;
-            """,
-            (usuario_id, now, now + timedelta(hours=2), now),
-        )
+        user_row = cur.fetchone()
+        cur.execute("SELECT id FROM estacionamiento ORDER BY id LIMIT 1;")
+        est_row = cur.fetchone()
+        if user_row and est_row:
+            usuario_id = user_row["id"]
+            est_id_sample = est_row["id"]
+            cur.execute(
+                """
+                INSERT INTO reserva (usuario_id, estacionamiento_id, hora_inicio, hora_fin, estado, fecha_creacion, created_by)
+                VALUES (%s, %s, %s, %s, 'confirmada', %s, 'seed')
+                ON CONFLICT DO NOTHING;
+                """,
+                (usuario_id, est_id_sample, now, now + timedelta(hours=2), now),
+            )
 
         # Registro de datos inicial
         if sensor_rows_full:
-            execute_values(
-                cur,
-                """
-                INSERT INTO registro_data (sensor_id, estacionamiento_id, hora_libre, hora_ocupado, estado, created_by)
-                VALUES %s
-                ON CONFLICT DO NOTHING;
-                """,
-                [(row["id"], row["estacionamiento_id"], now, None, "libre", "seed") for row in sensor_rows_full],
-            )
+            reg_values = [(row["id"], row["estacionamiento_id"], now, None, "libre", "seed") for row in sensor_rows_full]
+            if execute_values:
+                execute_values(
+                    cur,
+                    """
+                    INSERT INTO registro_data (sensor_id, estacionamiento_id, hora_libre, hora_ocupado, estado, created_by)
+                    VALUES %s
+                    ON CONFLICT DO NOTHING;
+                    """,
+                    reg_values,
+                )
+            else:
+                for v in reg_values:
+                    cur.execute(
+                        """
+                        INSERT INTO registro_data (sensor_id, estacionamiento_id, hora_libre, hora_ocupado, estado, created_by)
+                        VALUES (%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT DO NOTHING;
+                        """,
+                        v,
+                    )
 
         # Umbrales
         if sensor_ids:
-            execute_values(
-                cur,
-                """
-                INSERT INTO sensor_threshold (sensor_id, min_value, max_value, alert_level, description, created_by)
-                VALUES %s
-                ON CONFLICT DO NOTHING;
-                """,
-                [(sid, 1, 100, "info", "umbral base", "seed") for sid in sensor_ids],
-            )
+            th_values = [(sid, 1, 100, "info", "umbral base", "seed") for sid in sensor_ids]
+            if execute_values:
+                execute_values(
+                    cur,
+                    """
+                    INSERT INTO sensor_threshold (sensor_id, min_value, max_value, alert_level, description, created_by)
+                    VALUES %s
+                    ON CONFLICT DO NOTHING;
+                    """,
+                    th_values,
+                )
+            else:
+                for v in th_values:
+                    cur.execute(
+                        """
+                        INSERT INTO sensor_threshold (sensor_id, min_value, max_value, alert_level, description, created_by)
+                        VALUES (%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT DO NOTHING;
+                        """,
+                        v,
+                    )
 
         print("Seed Postgres completo.")
 

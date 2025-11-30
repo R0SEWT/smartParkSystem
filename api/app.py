@@ -323,16 +323,23 @@ def admin_reset():
     except Exception as e:
         return jsonify({"ok": False, "error": f"pg reset: {e}"}), 500
 
-    seeded = False
-    if seed_postgres and seed_mongo:
-        try:
-            seed_postgres()
-            seed_mongo()
-            seeded = True
-        except Exception as e:
-            return jsonify({"ok": False, "error": f"seed error: {e}"}), 500
+    try:
+        seeds_mod = import_module("seed_basics")
+        seed_postgres_fn = getattr(seeds_mod, "seed_postgres", None)
+        seed_mongo_fn = getattr(seeds_mod, "seed_mongo", None)
+    except Exception as e:
+        return jsonify({"ok": True, "seeded": False, "warning": f"no se pudieron importar seeds: {e}"}), 200
 
-    return jsonify({"ok": True, "seeded": seeded})
+    if not seed_postgres_fn or not seed_mongo_fn:
+        return jsonify({"ok": True, "seeded": False, "warning": "seed_postgres/seed_mongo no definidos"}), 200
+
+    try:
+        seed_postgres_fn()
+        seed_mongo_fn()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"seed error: {e}"}), 500
+
+    return jsonify({"ok": True, "seeded": True})
 
 
 @app.get("/openapi.json")
