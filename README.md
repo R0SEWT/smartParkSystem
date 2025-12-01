@@ -46,7 +46,7 @@ tools/             # scripts auxiliares para datos y simulación
 3. **Seed + simulador**
    ```bash
    cd tools
-   cp .env.example .env && edit .env
+   ##cp .env.example .env && edit .env
    export $(grep -v '^#' .env | xargs)
    python seed_basics.py
    # opcional: ajustar SIM_EST / SIM_SENSOR_IDS / SIM_PERIOD

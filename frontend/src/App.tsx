@@ -120,6 +120,7 @@ function App() {
 
   const totalLibres = campusCards.reduce((acc, c) => acc + c.libres, 0);
   const totalSensores = campusCards.reduce((acc, c) => acc + c.total, 0);
+  const planSectionId = "floor-planner";
   const campusSectionId = "campus-availability";
 
   const lastUpdateLabel = (ts?: number) => {
@@ -191,7 +192,7 @@ function App() {
               </p>
               <div className="flex flex-wrap gap-3">
                 <a
-                  href={`#${campusSectionId}`}
+                  href={`#${planSectionId}`}
                   className="inline-flex items-center justify-center rounded-full bg-white px-5 py-2 text-sm font-semibold text-slate-900 shadow-sm"
                 >
                   Ver disponibilidad
@@ -246,6 +247,65 @@ function App() {
               </div>
             </div>
           </div>
+        </section>
+
+        <section id={planSectionId} className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Planifica tu llegada por piso</p>
+              <h3 className="text-2xl font-semibold text-slate-900">
+                Tu atajo directo en {selectedCampusData?.name ?? selectedCampusInfo.name}
+              </h3>
+            </div>
+            {status.loading && <span className="text-xs text-slate-500">Actualizando lecturas…</span>}
+          </div>
+          <p className="mt-2 text-sm text-slate-500">
+            Esta es la vista prioritaria: antes de entrar al estacionamiento revisa qué niveles tienen plazas libres y
+            evita subir o bajar en vano dentro de tu campus asignado.
+          </p>
+          {selectedCampusFloors.length ? (
+            <>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {selectedCampusFloors.slice(0, 4).map((floor) => (
+                  <div
+                    key={floor.code}
+                    className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700"
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-slate-900">{formatFloorLabel(floor.code)}</p>
+                      <span className="text-xs text-slate-500">{floor.total} plazas</span>
+                    </div>
+                    <p className="mt-1 text-emerald-600">
+                      {floor.libres} libres <span className="text-slate-400">/ {floor.ocupados} ocupados</span>
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      {floor.lastUpdated ? lastUpdateLabel(floor.lastUpdated) : "Sin lecturas recientes"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <ul className="mt-5 space-y-3 text-sm text-slate-600">
+                <li className="rounded-2xl bg-slate-50 p-3">
+                  1. Ingresa directo a {formatFloorLabel(preferredFloor?.code)}: en este momento hay{" "}
+                  {preferredFloor?.libres ?? 0} plazas disponibles.
+                </li>
+                <li className="rounded-2xl bg-slate-50 p-3">
+                  2. Si se llena, baja o sube al {backupFloor ? formatFloorLabel(backupFloor.code) : "nivel siguiente"},{" "}
+                  {backupFloor ? `${backupFloor.libres} libres` : "verifica los sensores para decidir rápido"}.
+                </li>
+                <li className="rounded-2xl bg-slate-50 p-3">
+                  3. Consulta esta pantalla antes de moverte:{" "}
+                  {preferredFloorMinutesAgo !== null
+                    ? `la última lectura de tu nivel llegó hace ${preferredFloorMinutesAgo} min.`
+                    : "aún no tenemos lecturas en este nivel, actualiza en unos segundos."}
+                </li>
+              </ul>
+            </>
+          ) : (
+            <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+              Todavía no registramos espacios por piso para esta sede. Mantén abierta la pantalla para verlos en cuanto lleguen.
+            </p>
+          )}
         </section>
 
         <section id={campusSectionId} className="space-y-6">
@@ -324,7 +384,7 @@ function App() {
               {status.error && <p className="text-sm text-red-600">Error al cargar estado: {status.error}</p>}
             </div>
             <p className="mt-1 text-sm text-slate-500">
-              Usa este tablero solo para contexto. Aunque ya tengas campus asignado, aquí ves qué sedes están más libres.
+              Solo por curiosidad: aunque ya tengas un destino fijo, aquí puedes mirar qué sedes están más libres hoy.
             </p>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               {campusCards.map((c) => (
@@ -366,64 +426,6 @@ function App() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Planifica tu llegada por piso</p>
-              <h3 className="text-2xl font-semibold text-slate-900">
-                Campus de destino: {selectedCampusData?.name ?? selectedCampusInfo.name}
-              </h3>
-            </div>
-            {status.loading && <span className="text-xs text-slate-500">Actualizando lecturas…</span>}
-          </div>
-          <p className="mt-2 text-sm text-slate-500">
-            Siempre estacionarás en este campus. Usa los sensores para decidir rápidamente a qué piso entrar y evita
-            dar vueltas fuera de tu sede.
-          </p>
-          {selectedCampusFloors.length ? (
-            <>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                {selectedCampusFloors.slice(0, 4).map((floor) => (
-                  <div
-                    key={floor.code}
-                    className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700"
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-slate-900">{formatFloorLabel(floor.code)}</p>
-                      <span className="text-xs text-slate-500">{floor.total} plazas</span>
-                    </div>
-                    <p className="mt-1 text-emerald-600">
-                      {floor.libres} libres <span className="text-slate-400">/ {floor.ocupados} ocupados</span>
-                    </p>
-                    <p className="text-[11px] text-slate-500">
-                      {floor.lastUpdated ? lastUpdateLabel(floor.lastUpdated) : "Sin lecturas recientes"}
-                    </p>
-                  </div>
-                ))}
-              </div>
-              <ul className="mt-5 space-y-3 text-sm text-slate-600">
-                <li className="rounded-2xl bg-slate-50 p-3">
-                  1. Ingresa directo a {formatFloorLabel(preferredFloor?.code)}: en este momento hay{" "}
-                  {preferredFloor?.libres ?? 0} plazas disponibles.
-                </li>
-                <li className="rounded-2xl bg-slate-50 p-3">
-                  2. Si se llena, baja o sube al {backupFloor ? formatFloorLabel(backupFloor.code) : "nivel siguiente"},{" "}
-                  {backupFloor ? `${backupFloor.libres} libres` : "verifica los sensores para decidir rápido"}.
-                </li>
-                <li className="rounded-2xl bg-slate-50 p-3">
-                  3. Consulta esta pantalla antes de moverte:{" "}
-                  {preferredFloorMinutesAgo !== null
-                    ? `la última lectura de tu nivel llegó hace ${preferredFloorMinutesAgo} min.`
-                    : "aún no tenemos lecturas en este nivel, actualiza en unos segundos."}
-                </li>
-              </ul>
-            </>
-          ) : (
-            <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
-              Todavía no registramos espacios por piso para esta sede. Mantén abierta la pantalla para verlos en cuanto lleguen.
-            </p>
-          )}
-        </section>
       </main>
     </div>
   );
