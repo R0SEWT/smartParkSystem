@@ -106,9 +106,21 @@ function App() {
     return map;
   }, [regItems]);
 
+  const sensorsByCampus = useMemo(() => {
+    const map = new Map<string, RegistroData[]>();
+    for (const entry of latestBySensor.values()) {
+      const campus = entry.estacionamiento_id?.split("-")[0];
+      if (!campus) continue;
+      const list = map.get(campus) ?? [];
+      list.push(entry);
+      map.set(campus, list);
+    }
+    return map;
+  }, [latestBySensor]);
+
   const campusCards = useMemo(() => {
     return CAMPUS.map((c) => {
-      const sensors = Array.from(latestBySensor.values()).filter((r) => r.estacionamiento_id?.startsWith(c.code));
+      const sensors = sensorsByCampus.get(c.code) ?? [];
       const total = sensors.length;
       const libres = sensors.filter((r) => r.estado === "libre").length;
       const ocupados = total - libres;
@@ -126,7 +138,7 @@ function App() {
         lastUpdated
       };
     }).sort((a, b) => b.libres - a.libres);
-  }, [latestBySensor]);
+  }, [sensorsByCampus]);
 
   const bestCampus = useMemo(() => {
     if (!campusCards.length) return null;
@@ -185,6 +197,33 @@ function App() {
   };
 
   const minutesSinceSelectedUpdate = minutesAgo(selectedCampusData?.lastUpdated);
+  const selectedCampusFloors = useMemo(() => {
+    if (!selectedCampus) return [];
+    const sensors = sensorsByCampus.get(selectedCampus) ?? [];
+    const floorMap = new Map<
+      string,
+      { code: string; libres: number; ocupados: number; total: number; lastUpdated: number }
+    >();
+    for (const sensor of sensors) {
+      const [, rawFloor] = (sensor.estacionamiento_id || "").split("-");
+      const floorCode = rawFloor || "General";
+      const entry =
+        floorMap.get(floorCode) ||
+        { code: floorCode, libres: 0, ocupados: 0, total: 0, lastUpdated: 0 };
+      entry.total += 1;
+      if (sensor.estado === "libre") entry.libres += 1;
+      else entry.ocupados += 1;
+      const created = sensor.created_at ? new Date(sensor.created_at).getTime() : 0;
+      if (created > entry.lastUpdated) entry.lastUpdated = created;
+      floorMap.set(floorCode, entry);
+    }
+    return Array.from(floorMap.values()).sort((a, b) => b.libres - a.libres);
+  }, [selectedCampus, sensorsByCampus]);
+
+  const preferredFloor = selectedCampusFloors[0] || null;
+  const backupFloor = selectedCampusFloors[1] || null;
+  const formatFloorLabel = (code?: string) => (code ? `Nivel ${code}` : "Nivel sin etiqueta");
+  const preferredFloorMinutesAgo = minutesAgo(preferredFloor?.lastUpdated);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -375,26 +414,54 @@ function App() {
             <LastEvents events={lastEvents} loading={status.loading} />
           </div>
           <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-900">Planifica tu llegada</h3>
+            <h3 className="text-base font-semibold text-slate-900">Planifica tu llegada por piso</h3>
             <p className="mt-1 text-sm text-slate-500">
-              Usa estas sugerencias para entrar y estacionar sin demoras. Los datos se sincronizan cada vez que un sensor detecta movimiento.
+              Prioriza los niveles con más lugares dentro de {selectedCampusData?.name ?? "tu campus"}. Así evitas
+              saltar entre sedes lejanas.
             </p>
-            <ul className="mt-4 space-y-3 text-sm text-slate-600">
-              <li className="rounded-2xl bg-slate-50 p-3">
-                1. Dirígete a {selectedCampusData?.name ?? "tu sede favorita"}: hay{" "}
-                {selectedCampusData?.libres ?? 0} espacios libres en este instante.
-              </li>
-              <li className="rounded-2xl bg-slate-50 p-3">
-                2. Si se ocupa por completo, cambia a {alternativeCampus?.name ?? "otra sede"}, que
-                actualmente cuenta con {alternativeCampus?.libres ?? 0} lugares.
-              </li>
-              <li className="rounded-2xl bg-slate-50 p-3">
-                3. Revisa esta pantalla cuando estés por llegar;{" "}
-                {minutesSinceSelectedUpdate !== null
-                  ? `la última actualización fue hace ${minutesSinceSelectedUpdate} min.`
-                  : "aún estamos esperando la primera lectura en esta sede."}
-              </li>
-            </ul>
+            {selectedCampusFloors.length ? (
+              <>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {selectedCampusFloors.slice(0, 4).map((floor) => (
+                    <div
+                      key={floor.code}
+                      className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold text-slate-900">{formatFloorLabel(floor.code)}</p>
+                        <span className="text-xs text-slate-500">{floor.total} plazas</span>
+                      </div>
+                      <p className="mt-1 text-emerald-600">
+                        {floor.libres} libres <span className="text-slate-400">/ {floor.ocupados} ocupados</span>
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        {floor.lastUpdated ? lastUpdateLabel(floor.lastUpdated) : "Sin lecturas recientes"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <ul className="mt-4 space-y-3 text-sm text-slate-600">
+                  <li className="rounded-2xl bg-slate-50 p-3">
+                    1. Entra directo a {formatFloorLabel(preferredFloor?.code)}: hay{" "}
+                    {preferredFloor?.libres ?? 0} espacios libres listos.
+                  </li>
+                  <li className="rounded-2xl bg-slate-50 p-3">
+                    2. ¿Se llenó? Cambia al {backupFloor ? formatFloorLabel(backupFloor.code) : "siguiente nivel disponible"},{" "}
+                    {backupFloor ? `${backupFloor.libres} libres` : "monitorea los sensores para elegir rápido"}.
+                  </li>
+                  <li className="rounded-2xl bg-slate-50 p-3">
+                    3. Revisa esta pantalla antes de subir o bajar:{" "}
+                    {preferredFloorMinutesAgo !== null
+                      ? `la última lectura de tu nivel llegó hace ${preferredFloorMinutesAgo} min.`
+                      : "aún no tenemos lecturas en este nivel, refresca en unos segundos."}
+                  </li>
+                </ul>
+              </>
+            ) : (
+              <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+                Todavía no registramos espacios por piso para esta sede. Mantén abierta la pantalla para verlos en cuanto lleguen.
+              </p>
+            )}
           </div>
         </section>
       </main>
