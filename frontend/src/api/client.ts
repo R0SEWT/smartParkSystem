@@ -12,7 +12,7 @@ export type StatusOverview = {
   registro_data: RegistroData[];
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8080";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://smartparksystemapi.azurewebsites.net";
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
