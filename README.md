@@ -79,7 +79,7 @@ tools/             # scripts auxiliares para datos y simulación
 
 ### Frontend: despliegue en Azure App Service
 - **Servicio**: Web App Linux (plan `asp-smartpark-b1`) sirviendo únicamente assets estáticos de `frontend/dist`. Dominio generado: `https://smartparksysten.azurewebsites.net`.
-- **Backend**: por defecto el build usa `.env.production` con `VITE_API_BASE=https://app-smartpark-api.azurewebsites.net`. Para entorno local sigue existiendo `.env.local` si quieres apuntar a `http://localhost:8080`.
+- **Backend**: por defecto el build usa `.env.production` con `VITE_API_BASE=https://smartparksystemapi.azurewebsites.net`. Para entorno local sigue existiendo `.env.local` si quieres apuntar a `http://localhost:8080`.
 - **Build**: `cd frontend && npm ci && npm run build` (o `npm run build -- --base=/` si usas rutas relativas). Output final queda bajo `frontend/dist`.
 - **Empaquetado y despliegue manual**:
   ```bash
@@ -92,8 +92,8 @@ tools/             # scripts auxiliares para datos y simulación
 - **CORS**: define la variable `ALLOWED_ORIGINS` en la Web App del backend con `https://smartparksysten.azurewebsites.net` y cualquier otro dominio (separados por coma) para evitar errores CORS.
 
 ### Backend: despliegue continuo API Flask
-- **Workflow**: [`api-appservice.yml`](.github/workflows/api-appservice.yml) (GitHub Actions) empaca el directorio `api/` como zip y lo publica en `app-smartpark-api`.
+- **Workflow**: [`api-appservice.yml`](.github/workflows/api-appservice.yml) (GitHub Actions) empaca el directorio `api/` como zip y lo publica en `smartparksystemapi`.
 - **Configuración necesaria**:
-  - Secreto `AZURE_WEBAPP_PUBLISH_PROFILE_API` con el *publish profile* de la Web App backend (igual que el frontend pero para `app-smartpark-api`).
+  - Secreto `AZURE_WEBAPP_PUBLISH_PROFILE_API` con el *publish profile* de la Web App backend (`smartparksystemapi.azurewebsites.net`).
   - App Settings en Azure: `PG_CONN`, `MONGODB_URI`, `ALLOWED_ORIGINS` (incluye `https://smartparksysten.azurewebsites.net`), `ADMIN_TOKEN` (opcional) y cualquier var adicional.
 - **Ejecución**: dispara al hacer push en `api/**` o manualmente desde Actions. El zip despliega `app.py` y `startup.sh`; App Service detecta Python 3.10 y ejecuta `gunicorn`/`flask` según configuración.

@@ -10,7 +10,7 @@ on:
 
 env:
   PYTHON_VERSION: "3.10"
-  WEBAPP_NAME: "app-smartpark-api"
+  WEBAPP_NAME: "smartparksystemapi"
 
 jobs:
   build-and-deploy:
