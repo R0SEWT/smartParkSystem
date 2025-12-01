@@ -11,6 +11,7 @@ on:
 env:
   PYTHON_VERSION: "3.10"
   WEBAPP_NAME: "smartparksystemapi"
+  RESOURCE_GROUP: "rg-smartpark-brazilsouth"
 
 jobs:
   build-and-deploy:
@@ -38,10 +39,22 @@ jobs:
           mkdir -p ../build
           zip -r ../build/api.zip . -x "**/__pycache__/*" ".venv/*" "*.pyc"
 
-      - name: 'Deploy to Azure Web App'
-        uses: azure/webapps-deploy@v3
-        id: deploy-to-webapp
+      - name: Azure login (publish profile)
+        uses: azure/login@v1
         with:
-          app-name: smartparksystemapi
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_API }}
+
+      - name: Ensure Web App is in code mode
+        uses: azure/cli@v1
+        with:
+          inlineScript: |
+            az webapp config container delete \
+              -g "${RESOURCE_GROUP}" \
+              -n "${WEBAPP_NAME}" || true
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.WEBAPP_NAME }}
           package: build/api.zip
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_API }}
