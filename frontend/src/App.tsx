@@ -15,6 +15,7 @@ const badges = {
   libre: "bg-emerald-100 text-emerald-700 border-emerald-300"
 };
 
+const STORAGE_KEY = "smartpark:selectedCampus";
 const CAMPUS = [
   { code: "MON", name: "Monterrico", accent: "from-cyan-500 to-emerald-500" },
   { code: "SMG", name: "San Miguel", accent: "from-orange-500 to-amber-400" },
@@ -85,8 +86,11 @@ function LastEvents({ events, loading }: { events: LastEvent[]; loading: boolean
 }
 
 function App() {
-  const [selectedCampus, setSelectedCampus] = useState<string>(CAMPUS[0].code);
-  const [hasManualSelection, setHasManualSelection] = useState(false);
+  const defaultCampus = CAMPUS[0].code;
+  const [selectedCampus, setSelectedCampus] = useState<string>(() => {
+    if (typeof window === "undefined") return defaultCampus;
+    return localStorage.getItem(STORAGE_KEY) || defaultCampus;
+  });
   const status = useAsync(() => api.statusOverview(), []);
   const registros = useAsync(() => api.registroData({ limit: 400 }), []);
 
@@ -140,22 +144,18 @@ function App() {
     }).sort((a, b) => b.libres - a.libres);
   }, [sensorsByCampus]);
 
-  const bestCampus = useMemo(() => {
-    if (!campusCards.length) return null;
-    return campusCards.reduce((best, campus) => {
-      if (!best) return campus;
-      return campus.libres > best.libres ? campus : best;
-    }, campusCards[0] ?? null);
-  }, [campusCards]);
-
   useEffect(() => {
-    if (!hasManualSelection && bestCampus?.code) {
-      setSelectedCampus(bestCampus.code);
+    if (typeof window !== "undefined" && selectedCampus) {
+      localStorage.setItem(STORAGE_KEY, selectedCampus);
     }
-  }, [bestCampus, hasManualSelection]);
+  }, [selectedCampus]);
 
+  const selectedCampusInfo = CAMPUS.find((c) => c.code === selectedCampus) || CAMPUS[0];
   const selectedCampusData =
-    campusCards.find((c) => c.code === selectedCampus) || bestCampus || campusCards[0] || null;
+    campusCards.find((c) => c.code === selectedCampus) ||
+    campusCards.find((c) => c.code === defaultCampus) ||
+    campusCards[0] ||
+    null;
 
   const selectedSensors = useMemo(() => {
     return regItems
@@ -178,7 +178,6 @@ function App() {
 
   const handleCampusSelect = (code: string) => {
     setSelectedCampus(code);
-    setHasManualSelection(true);
   };
 
   const totalLibres = campusCards.reduce((acc, c) => acc + c.libres, 0);
@@ -250,7 +249,7 @@ function App() {
                 Revisa los lugares disponibles antes de estacionar
               </h2>
               <p className="text-base text-white/80">
-                Consulta en qué sede hay más espacios libres y evita vueltas innecesarias. Los datos se actualizan en tiempo real desde cada sensor.
+                Consulta el estado de tu campus asignado y evita vueltas innecesarias dentro del mismo. Los datos se actualizan en tiempo real desde cada sensor.
               </p>
               <div className="flex flex-wrap gap-3">
                 <a
@@ -265,20 +264,38 @@ function App() {
               </div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/10 p-5 backdrop-blur">
-              <p className="text-xs uppercase tracking-wide text-white/70">Campus recomendado</p>
+              <p className="text-xs uppercase tracking-wide text-white/70">Tu campus fijo</p>
               <p className="mt-2 text-4xl font-semibold">
-                {bestCampus ? `${bestCampus.libres} libres` : "Sin datos"}
+                {selectedCampusData ? `${selectedCampusData.libres} libres` : "Sin datos"}
               </p>
               <p className="text-white/80">
-                {bestCampus ? `${bestCampus.name} es la mejor opción en este momento.` : "Conecta para ver lecturas recientes."}
+                {selectedCampusData
+                  ? `${selectedCampusData.name} es tu punto de llegada habitual.`
+                  : "Selecciona una sede para ver su disponibilidad."}
               </p>
-              <div className="mt-4 text-sm text-white/70">
-                {bestCampus?.lastUpdated ? lastUpdateLabel(bestCampus.lastUpdated) : "Esperando la primera lectura."}
+              <div className="mt-4">
+                <label className="text-xs uppercase tracking-wide text-white/70">Selecciona la sede</label>
+                <div className="mt-2 rounded-2xl bg-white/10 p-3 shadow-inner">
+                  <select
+                    value={selectedCampus}
+                    onChange={(e) => handleCampusSelect(e.target.value)}
+                    className="w-full rounded-xl border border-white/20 bg-white/90 px-3 py-2 text-sm font-semibold text-slate-900 focus:outline-none"
+                  >
+                    {CAMPUS.map((campus) => (
+                      <option key={campus.code} value={campus.code}>
+                        {campus.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-[11px] text-white/70">Guardamos tu elección para la próxima visita.</p>
+                </div>
               </div>
               <div className="mt-6 grid gap-3 text-sm">
                 <div className="flex items-center justify-between rounded-xl bg-white/10 px-4 py-3">
-                  <span>Porcentaje libre</span>
-                  <span className="font-semibold">{bestCampus ? `${bestCampus.freeRatio}%` : "—"}</span>
+                  <span>Última actualización</span>
+                  <span className="font-semibold">
+                    {selectedCampusData?.lastUpdated ? lastUpdateLabel(selectedCampusData.lastUpdated) : "sin datos"}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between rounded-xl bg-white/10 px-4 py-3">
                   <span>Plan alterno</span>
@@ -344,7 +361,9 @@ function App() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-500">Tu selección</p>
-                <h3 className="text-xl font-semibold text-slate-900">{selectedCampusData?.name ?? "Sin datos"}</h3>
+                <h3 className="text-xl font-semibold text-slate-900">
+                  {selectedCampusData?.name ?? selectedCampusInfo.name}
+                </h3>
                 <p className="text-sm text-slate-500">{lastUpdateLabel(selectedCampusData?.lastUpdated)}</p>
               </div>
               <div className="text-right">
@@ -416,7 +435,7 @@ function App() {
           <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
             <h3 className="text-base font-semibold text-slate-900">Planifica tu llegada por piso</h3>
             <p className="mt-1 text-sm text-slate-500">
-              Prioriza los niveles con más lugares dentro de {selectedCampusData?.name ?? "tu campus"}. Así evitas
+              Prioriza los niveles con más lugares dentro de {selectedCampusData?.name ?? selectedCampusInfo.name}. Así evitas
               saltar entre sedes lejanas.
             </p>
             {selectedCampusFloors.length ? (
