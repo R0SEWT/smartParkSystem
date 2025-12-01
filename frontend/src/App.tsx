@@ -114,14 +114,6 @@ function App() {
       });
   }, [regItems, selectedCampus]);
 
-  const alternativeCampus = useMemo(() => {
-    return (
-      campusCards
-        .filter((c) => c.code !== selectedCampus)
-        .sort((a, b) => b.libres - a.libres)[0] || null
-    );
-  }, [campusCards, selectedCampus]);
-
   const handleCampusSelect = (code: string) => {
     setSelectedCampus(code);
   };
@@ -244,9 +236,11 @@ function App() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between rounded-xl bg-white/10 px-4 py-3">
-                  <span>Plan alterno</span>
+                  <span>Piso recomendado</span>
                   <span className="font-semibold">
-                    {alternativeCampus ? `${alternativeCampus.name} (${alternativeCampus.libres})` : "En evaluación"}
+                    {preferredFloor
+                      ? `${formatFloorLabel(preferredFloor.code)} (${preferredFloor.libres} libres)`
+                      : "En evaluación"}
                   </span>
                 </div>
               </div>
@@ -254,69 +248,21 @@ function App() {
           </div>
         </section>
 
-        <section id={campusSectionId} className="grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="space-y-5">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Selecciona una sede</p>
-                <h3 className="text-2xl font-semibold text-slate-900">Elige dónde vas a estacionar</h3>
-              </div>
-              {status.error && <p className="text-sm text-red-600">Error al cargar estado: {status.error}</p>}
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {campusCards.map((c) => (
-                <button
-                  key={c.code}
-                  onClick={() => handleCampusSelect(c.code)}
-                  className={`group relative overflow-hidden rounded-3xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg ${
-                    selectedCampus === c.code ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-100"
-                  }`}
-                >
-                  <div className={`absolute inset-x-4 top-0 h-1 rounded-full bg-gradient-to-r ${c.accent} opacity-80`} />
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-slate-500">{c.code}</p>
-                      <h4 className="text-lg font-semibold text-slate-900">{c.name}</h4>
-                      <p className="text-sm text-slate-500">
-                        {c.libres} libres · {c.ocupados} ocupados
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-3xl font-semibold text-slate-900">{c.libres}</p>
-                      <p className="text-xs text-slate-500">lugares libres</p>
-                    </div>
-                  </div>
-                  <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400"
-                      style={{ width: `${c.freeRatio}%` }}
-                    />
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">{lastUpdateLabel(c.lastUpdated)}</p>
-                </button>
-              ))}
-              {!campusCards.length && (
-                <div className="rounded-3xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
-                  Conecta con la API para ver los campus disponibles.
-                </div>
-              )}
-            </div>
-          </div>
-
+        <section id={campusSectionId} className="space-y-6">
           <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p className="text-xs uppercase tracking-wide text-slate-500">Tu selección</p>
-                <h3 className="text-xl font-semibold text-slate-900">
-                  {selectedCampusData?.name ?? selectedCampusInfo.name}
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Campus de destino</p>
+                <h3 className="text-2xl font-semibold text-slate-900">
+                  Tu estacionamiento en {selectedCampusData?.name ?? selectedCampusInfo.name}
                 </h3>
-                <p className="text-sm text-slate-500">{lastUpdateLabel(selectedCampusData?.lastUpdated)}</p>
               </div>
-              <div className="text-right">
-                <p className="text-4xl font-semibold text-slate-900">{selectedCampusData?.libres ?? "—"}</p>
-                <p className="text-xs text-slate-500">lugares libres</p>
-              </div>
+              <p className="text-sm text-slate-500">{lastUpdateLabel(selectedCampusData?.lastUpdated)}</p>
             </div>
+            <p className="mt-1 text-sm text-slate-500">
+              Aquí monitoreas los sensores que te importan hoy. Cambia de sede desde el selector superior si tu destino
+              habitual varía.
+            </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-center">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Libres</p>
@@ -365,6 +311,56 @@ function App() {
                 </div>
               ) : (
                 <p className="text-sm text-slate-500">No hay lecturas recientes para esta sede.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Estado general</p>
+                <h3 className="text-2xl font-semibold text-slate-900">Así van las sedes hoy</h3>
+              </div>
+              {status.error && <p className="text-sm text-red-600">Error al cargar estado: {status.error}</p>}
+            </div>
+            <p className="mt-1 text-sm text-slate-500">
+              Usa este tablero solo para contexto. Aunque ya tengas campus asignado, aquí ves qué sedes están más libres.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {campusCards.map((c) => (
+                <div
+                  key={c.code}
+                  className={`relative overflow-hidden rounded-3xl border bg-white p-5 shadow-sm ${
+                    selectedCampus === c.code ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-100"
+                  }`}
+                >
+                  <div className={`absolute inset-x-4 top-0 h-1 rounded-full bg-gradient-to-r ${c.accent} opacity-80`} />
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500">{c.code}</p>
+                      <h4 className="text-lg font-semibold text-slate-900">{c.name}</h4>
+                      <p className="text-sm text-slate-500">
+                        {c.libres} libres · {c.ocupados} ocupados
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-3xl font-semibold text-slate-900">{c.libres}</p>
+                      <p className="text-xs text-slate-500">lugares libres</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400"
+                      style={{ width: `${c.freeRatio}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">{lastUpdateLabel(c.lastUpdated)}</p>
+                </div>
+              ))}
+              {!campusCards.length && (
+                <div className="rounded-3xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+                  Conecta con la API para ver los campus disponibles.
+                </div>
               )}
             </div>
           </div>
