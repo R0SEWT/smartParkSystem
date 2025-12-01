@@ -290,7 +290,7 @@ function App() {
                   {preferredFloor?.libres ?? 0} plazas disponibles.
                 </li>
                 <li className="rounded-2xl bg-slate-50 p-3">
-                  2. Si se llena, baja o sube al {backupFloor ? formatFloorLabel(backupFloor.code) : "nivel siguiente"},{" "}
+                  2. Si se llena, dirigete al {backupFloor ? formatFloorLabel(backupFloor.code) : "nivel siguiente"},{" "}
                   {backupFloor ? `${backupFloor.libres} libres` : "verifica los sensores para decidir rápido"}.
                 </li>
                 <li className="rounded-2xl bg-slate-50 p-3">
