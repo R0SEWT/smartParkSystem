@@ -1,20 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, RegistroData } from "./api/client";
 
-type LastEvent = {
-  sensor_id: number;
-  estacionamiento_id?: string;
-  estado?: string;
-  ts?: string;
-  occupied?: boolean;
-  payload?: Record<string, unknown>;
-};
-
-const badges = {
-  ocupado: "bg-red-100 text-red-700 border-red-300",
-  libre: "bg-emerald-100 text-emerald-700 border-emerald-300"
-};
-
 const STORAGE_KEY = "smartpark:selectedCampus";
 const CAMPUS = [
   { code: "MON", name: "Monterrico", accent: "from-cyan-500 to-emerald-500" },
@@ -46,45 +32,6 @@ function useAsync<T>(fn: () => Promise<T>, deps: unknown[]) {
   return { data, loading, error };
 }
 
-function LastEvents({ events, loading }: { events: LastEvent[]; loading: boolean }) {
-  if (loading) return <p className="text-slate-500 text-sm">Actualizando lecturas...</p>;
-  if (!events.length) return <p className="text-slate-500 text-sm">Aún no hay eventos para mostrar.</p>;
-  return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      {events.map((e, idx) => (
-        <div key={idx} className="rounded-2xl border border-slate-100 bg-white/70 p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-slate-900">Sensor {e.sensor_id}</p>
-              {e.estacionamiento_id && <p className="text-xs text-slate-500">{e.estacionamiento_id}</p>}
-            </div>
-            {e.estado && (
-              <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs border ${badges[e.estado as "ocupado" | "libre"] ?? ""}`}
-              >
-                {e.estado}
-              </span>
-            )}
-            {typeof e.occupied === "boolean" && !e.estado && (
-              <span
-                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs border ${
-                  e.occupied ? badges.ocupado : badges.libre
-                }`}
-              >
-                {e.occupied ? "ocupado" : "libre"}
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-xs text-slate-500">{e.ts ? new Date(e.ts).toLocaleString() : "—"}</p>
-          {e.payload && Object.keys(e.payload).length > 0 && (
-            <pre className="mt-2 rounded bg-slate-50 p-2 text-[11px] text-slate-700">{JSON.stringify(e.payload, null, 2)}</pre>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function App() {
   const defaultCampus = CAMPUS[0].code;
   const [selectedCampus, setSelectedCampus] = useState<string>(() => {
@@ -94,7 +41,6 @@ function App() {
   const status = useAsync(() => api.statusOverview(), []);
   const registros = useAsync(() => api.registroData({ limit: 400 }), []);
 
-  const lastEvents = useMemo(() => (status.data?.last_events as LastEvent[]) || [], [status.data]);
   const regItems = registros.data?.items || [];
 
   const latestBySensor = useMemo(() => {
@@ -424,64 +370,63 @@ function App() {
           </div>
         </section>
 
-        <section className="grid gap-6 md:grid-cols-2">
-          <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-slate-900">Pulso del estacionamiento</h3>
-              {status.loading && <span className="text-xs text-slate-500">Actualizando…</span>}
+        <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Planifica tu llegada por piso</p>
+              <h3 className="text-2xl font-semibold text-slate-900">
+                Campus de destino: {selectedCampusData?.name ?? selectedCampusInfo.name}
+              </h3>
             </div>
-            <LastEvents events={lastEvents} loading={status.loading} />
+            {status.loading && <span className="text-xs text-slate-500">Actualizando lecturas…</span>}
           </div>
-          <div className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-900">Planifica tu llegada por piso</h3>
-            <p className="mt-1 text-sm text-slate-500">
-              Prioriza los niveles con más lugares dentro de {selectedCampusData?.name ?? selectedCampusInfo.name}. Así evitas
-              saltar entre sedes lejanas.
-            </p>
-            {selectedCampusFloors.length ? (
-              <>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {selectedCampusFloors.slice(0, 4).map((floor) => (
-                    <div
-                      key={floor.code}
-                      className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700"
-                    >
-                      <div className="flex items-center justify-between">
-                        <p className="font-semibold text-slate-900">{formatFloorLabel(floor.code)}</p>
-                        <span className="text-xs text-slate-500">{floor.total} plazas</span>
-                      </div>
-                      <p className="mt-1 text-emerald-600">
-                        {floor.libres} libres <span className="text-slate-400">/ {floor.ocupados} ocupados</span>
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        {floor.lastUpdated ? lastUpdateLabel(floor.lastUpdated) : "Sin lecturas recientes"}
-                      </p>
+          <p className="mt-2 text-sm text-slate-500">
+            Siempre estacionarás en este campus. Usa los sensores para decidir rápidamente a qué piso entrar y evita
+            dar vueltas fuera de tu sede.
+          </p>
+          {selectedCampusFloors.length ? (
+            <>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                {selectedCampusFloors.slice(0, 4).map((floor) => (
+                  <div
+                    key={floor.code}
+                    className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700"
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-slate-900">{formatFloorLabel(floor.code)}</p>
+                      <span className="text-xs text-slate-500">{floor.total} plazas</span>
                     </div>
-                  ))}
-                </div>
-                <ul className="mt-4 space-y-3 text-sm text-slate-600">
-                  <li className="rounded-2xl bg-slate-50 p-3">
-                    1. Entra directo a {formatFloorLabel(preferredFloor?.code)}: hay{" "}
-                    {preferredFloor?.libres ?? 0} espacios libres listos.
-                  </li>
-                  <li className="rounded-2xl bg-slate-50 p-3">
-                    2. ¿Se llenó? Cambia al {backupFloor ? formatFloorLabel(backupFloor.code) : "siguiente nivel disponible"},{" "}
-                    {backupFloor ? `${backupFloor.libres} libres` : "monitorea los sensores para elegir rápido"}.
-                  </li>
-                  <li className="rounded-2xl bg-slate-50 p-3">
-                    3. Revisa esta pantalla antes de subir o bajar:{" "}
-                    {preferredFloorMinutesAgo !== null
-                      ? `la última lectura de tu nivel llegó hace ${preferredFloorMinutesAgo} min.`
-                      : "aún no tenemos lecturas en este nivel, refresca en unos segundos."}
-                  </li>
-                </ul>
-              </>
-            ) : (
-              <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
-                Todavía no registramos espacios por piso para esta sede. Mantén abierta la pantalla para verlos en cuanto lleguen.
-              </p>
-            )}
-          </div>
+                    <p className="mt-1 text-emerald-600">
+                      {floor.libres} libres <span className="text-slate-400">/ {floor.ocupados} ocupados</span>
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      {floor.lastUpdated ? lastUpdateLabel(floor.lastUpdated) : "Sin lecturas recientes"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <ul className="mt-5 space-y-3 text-sm text-slate-600">
+                <li className="rounded-2xl bg-slate-50 p-3">
+                  1. Ingresa directo a {formatFloorLabel(preferredFloor?.code)}: en este momento hay{" "}
+                  {preferredFloor?.libres ?? 0} plazas disponibles.
+                </li>
+                <li className="rounded-2xl bg-slate-50 p-3">
+                  2. Si se llena, baja o sube al {backupFloor ? formatFloorLabel(backupFloor.code) : "nivel siguiente"},{" "}
+                  {backupFloor ? `${backupFloor.libres} libres` : "verifica los sensores para decidir rápido"}.
+                </li>
+                <li className="rounded-2xl bg-slate-50 p-3">
+                  3. Consulta esta pantalla antes de moverte:{" "}
+                  {preferredFloorMinutesAgo !== null
+                    ? `la última lectura de tu nivel llegó hace ${preferredFloorMinutesAgo} min.`
+                    : "aún no tenemos lecturas en este nivel, actualiza en unos segundos."}
+                </li>
+              </ul>
+            </>
+          ) : (
+            <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
+              Todavía no registramos espacios por piso para esta sede. Mantén abierta la pantalla para verlos en cuanto lleguen.
+            </p>
+          )}
         </section>
       </main>
     </div>
