@@ -4,49 +4,47 @@ flowchart LR
   SIM["Simulador de Sensores<br/>(payload JSON: sensor_id, ts, occupied)"]:::ext
 
   %% === Frontend ===
-  SWA["Azure Static Web Apps<br/>(SPA/Dashboard)"]:::fe
+  FE["Azure App Service (Web App)<br/>Frontend SPA (assets estáticos)"]:::fe
 
-  %% === Capa API / Ingesta ===
-  APISVC["Azure App Service<br/>Backend API (Flask/Node)"]:::api
-  FNHTT["Azure Functions<br/>HTTP Trigger (/sensor_event)"]:::api
-  FNTMR["Azure Functions<br/>Timer Trigger (sim ingest)"]:::api
-  SB["Azure Service Bus (opcional)<br/>cola topics para burst"]:::mq
+  %% === Backend ===
+  APISVC["Azure App Service (Web App)<br/>Backend API (Flask)"]:::api
 
-  %% === Datos ===
+  %% === Datos / Observabilidad / Seguridad ===
   subgraph AZ[Azure - Brazil South]
     PG[("Azure Database for PostgreSQL<br/>Flexible Server + PostGIS")]:::db
-    KV["Azure Key Vault<br/>(secrets: connstrings, keys)"]:::sec
-    MON[Azure Monitor + Log Analytics]:::obs
-    VNET[(VNet + Subnets)]:::net
+    KV["Azure Key Vault<br/>(secrets: PG_CONN, MONGODB_URI, ADMIN_TOKEN)"]:::sec
+    MON["Application Insights + Log Analytics"]:::obs
+    FE
     APISVC
-    FNHTT
-    FNTMR
-    SB
-    SWA
   end
 
   subgraph ATLAS["MongoDB Atlas (Azure, tier M0)"]
     MDB[(Cluster MongoDB)]:::nosql
   end
 
-  %% === Flujos principales ===
-  U -->|"HTTPS/HTTP2"| SWA
-  SWA -->|"REST/JSON"| APISVC
+  %% === Flujos principales (core) ===
+  U -->|"HTTPS"| FE
+  FE -->|"REST/JSON"| APISVC
+  SIM -->|"POST /sensor_event"| APISVC
 
-  SIM -->|"POST /sensor_event"| FNHTT
-  FNTMR -->|"payload sintético"| FNHTT
-  FNHTT -->|"enqueue (opcional)"| SB
-  SB -->|workers| APISVC
+  APISVC -->|"INSERT/SELECT"| PG
+  APISVC -->|"INSERT/QUERY"| MDB
 
-  APISVC -->|"INSERT/SELECT<br/>TLS 1.2+"| PG
-  APISVC -->|"INSERT/QUERY<br/>TLS 1.2+"| MDB
-
-  %% === Observabilidad y secretos ===
+  %% === Observabilidad y secretos (core) ===
   APISVC -. "App Settings ->" .- KV
-  FNHTT -. "Function Settings ->" .- KV
-  APISVC -. "metrics/logs" .-> MON
-  FNHTT -. "metrics/logs" .-> MON
-  PG -. "metrics/logs" .-> MON
+  APISVC -. "trazas/logs" .-> MON
+  PG -. "metrics" .-> MON
+
+  %% === Opcional (stretch goals) ===
+  subgraph OPT[Opcional / Stretch goals]
+    FNHTT["Azure Functions<br/>HTTP Trigger (/sensor_event)"]:::api
+    FNTMR["Azure Functions<br/>Timer Trigger (sim ingest)"]:::api
+    SB["Azure Service Bus (opcional)<br/>cola/topics para burst"]:::mq
+  end
+  SIM -. "alternativa" .-> FNHTT
+  FNTMR -. "payload sintético" .-> FNHTT
+  FNHTT -. "enqueue" .-> SB
+  SB -. "workers" .-> APISVC
 
   %% === Estilos ===
   classDef actor fill:#fff,stroke:#333,stroke-width:1px,color:#111;

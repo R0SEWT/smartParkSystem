@@ -1,83 +1,110 @@
-# Detalles del despliegue de la aplicación Smart Park System
+# Detalles del despliegue (Azure)
 
-Crear un grupo de recursos (RG) en Azure, un servidor flexible de PostgreSQL en la región de Brazil South, un Azure Key Vault y un Azure App Service.
+Volver al hub: [doc/README.md](README.md)
 
-1. Nos logueamos a Az
-2. `az group create -n "$RG" -l "$LOC"` (crear grupo de recursos)
-3. PostgreSQL Flexible Server (burstable barato para demo) SKU válido típico: Standard_B1ms / Standard_B2ms
+## Opción 1 (recomendada): IaC con Bicep
+La forma más “portfolio-grade” y reproducible es usar Bicep.
 
+- Guía y comandos: [infra/README.md](../infra/README.md)
+- Bicep: `infra/main.bicep`
+- Observabilidad: [doc/observability.md](observability.md)
+
+Nota importante:
+- Los workflows despliegan por defecto a `smartparksystemapi` (API) y `smartparksysten` (frontend). El Bicep usa esos mismos defaults.
+- Si cambias nombres, actualiza también los valores `WEBAPP_NAME` en los workflows.
+
+## Opción 2: despliegue manual con Azure CLI (referencia)
+Esta ruta es útil para entender piezas, pero es más fácil equivocarse que con IaC.
+
+### Recursos
+- PostgreSQL Flexible Server + PostGIS
+- App Service Plan (Linux)
+- Web App API (Python)
+- Web App Frontend (Linux)
+- Key Vault con **RBAC** (evitar access policies)
+
+### Pasos
+1) Variables mínimas
+```bash
+RG=rg-smartpark-dev
+LOC=brazilsouth
+
+PG=smartpark-dev-pg
+PG_ADMIN=pgadmin
+PG_PASS='***'
+PG_DB=smartpark
+
+KV=smartpark-dev-kv
+PLAN=asp-smartpark-b1
+WEBAPP_API=smartparksystemapi
+WEBAPP_FE=smartparksysten
 ```
 
+2) Login y Resource Group
+```bash
+az login
+az group create -n "$RG" -l "$LOC"
+```
+
+3) PostgreSQL Flexible Server (demo)
+```bash
 az postgres flexible-server create \
   -g "$RG" -n "$PG" -l "$LOC" \
   --tier Burstable --sku-name Standard_B1ms \
   --version 16 --storage-size 64 \
   --administrator-user "$PG_ADMIN" --administrator-password "$PG_PASS" \
   --public-access all
-  ```
-4. Creamos la app de base de datos Postgress `az postgres flexible-server db create -g "$RG" -s "$PG" -d "$PG_DB"`
-5. Creamos el Key Vault (para guardar la cadena de conexion como secreto) `az keyvault create -g "$RG" -n "$KV" -l "$LOC"`
-6. Creamos/obtenemos la cadena de conexion de posgres 
 
-```
+az postgres flexible-server db create -g "$RG" -s "$PG" -d "$PG_DB"
 
 PG_HOST=$(az postgres flexible-server show -g "$RG" -n "$PG" --query "fullyQualifiedDomainName" -o tsv)
 export PG_CONN="postgresql://${PG_ADMIN}:${PG_PASS}@${PG_HOST}:5432/${PG_DB}?sslmode=require"
-
 ```
 
-7. Guardamos la cadena `az keyvault secret set --vault-name "$KV" -n PG_CONN --value "$PG_CONN"`
-8. Creamos la app service 
+4) Key Vault con RBAC + secretos
+```bash
+az keyvault create -g "$RG" -n "$KV" -l "$LOC" --enable-rbac-authorization true
+
+az keyvault secret set --vault-name "$KV" -n PG_CONN --value "$PG_CONN"
+# También necesitas estos secretos para el backend:
+# az keyvault secret set --vault-name "$KV" -n MONGODB_URI --value '***'
+# az keyvault secret set --vault-name "$KV" -n ADMIN_TOKEN --value '***'
 ```
+
+5) App Service (plan + apps)
+```bash
 az appservice plan create -g "$RG" -n "$PLAN" --is-linux --sku B1 --location "$LOC"
-az webapp create -g "$RG" -p "$PLAN" -n "$WEBAPP" --runtime "PYTHON:3.10"
-
-```
-9. Habilitamos la identidad: 
-```
-az webapp identity assign -g "$RG" -n "$WEBAPP"
-APP_MI_PRINCIPAL_ID=$(az webapp identity show -g "$RG" -n "$WEBAPP" --query principalId -o tsv)
-```
-10. Permisos de secretos
-`az keyvault set-policy -n "$KV" --object-id "$APP_MI_PRINCIPAL_ID" --secret-permissions get list`
-11. Linkeamos app settings al vault:
-```
-az webapp config appsettings set -g "$RG" -n "$WEBAPP" --settings \
-  PG_CONN="@Microsoft.KeyVault(SecretUri=https://${KV}.vault.azure.net/secrets/PG_CONN/)"
+az webapp create -g "$RG" -p "$PLAN" -n "$WEBAPP_API" --runtime "PYTHON:3.10"
+az webapp create -g "$RG" -p "$PLAN" -n "$WEBAPP_FE" --runtime "NODE|20-lts"
 ```
 
+6) Managed Identity + permisos a Key Vault (RBAC)
+```bash
+az webapp identity assign -g "$RG" -n "$WEBAPP_API"
+APP_MI_PRINCIPAL_ID=$(az webapp identity show -g "$RG" -n "$WEBAPP_API" --query principalId -o tsv)
+KV_ID=$(az keyvault show -g "$RG" -n "$KV" --query id -o tsv)
 
+az role assignment create \
+  --assignee-object-id "$APP_MI_PRINCIPAL_ID" \
+  --assignee-principal-type ServicePrincipal \
+  --role "Key Vault Secrets User" \
+  --scope "$KV_ID"
+```
 
+7) App Settings (Key Vault References + CORS)
+```bash
+az webapp config appsettings set -g "$RG" -n "$WEBAPP_API" --settings \
+  PG_CONN="@Microsoft.KeyVault(SecretUri=https://${KV}.vault.azure.net/secrets/PG_CONN/)" \
+  MONGODB_URI="@Microsoft.KeyVault(SecretUri=https://${KV}.vault.azure.net/secrets/MONGODB_URI/)" \
+  ADMIN_TOKEN="@Microsoft.KeyVault(SecretUri=https://${KV}.vault.azure.net/secrets/ADMIN_TOKEN/)" \
+  ALLOWED_ORIGINS="https://${WEBAPP_FE}.azurewebsites.net"
+```
 
-- PostgreSQL Flexible Server (relacional canonical, soportado)
+8) Inicializar schema (PostGIS + tablas)
+```bash
+psql "$PG_CONN" -f api/db_init.sql
+```
 
-- App Service Linux Python (API)
-
-- Key Vault con RBAC (enterprise grade, no “policies legacy”)
-
-- datos spatio-temporal → PostGIS
-
-- provisionamos infraestructura base en Brazil South:
-
-- Resource Group
-
-- PostgreSQL Flexible Server + DB smartpark
-
-- Key Vault
-
-- App Service Plan B1 + WebApp Python
-
-se fijó seguridad correctamente:
-
-Key Vault con RBAC
-
-WebApp = System Assigned MI
-
-WebApp tiene rol Key Vault Secrets User
-
-tú tienes rol Key Vault Secrets Officer
-
-se guardó el secret PG-CONN en Key Vault
-y se insertó en WebApp como Key Vault Reference → PG_CONN
-
-se validó funcionalmente la resolución de Key Vault Reference (sin exponer secretos en claro)
+9) Despliegue (recomendado vía GitHub Actions)
+- API: [.github/workflows/api-appservice.yml](../.github/workflows/api-appservice.yml)
+- Frontend: [.github/workflows/frontend-appservice.yml](../.github/workflows/frontend-appservice.yml)

@@ -38,8 +38,14 @@ function App() {
     if (typeof window === "undefined") return defaultCampus;
     return localStorage.getItem(STORAGE_KEY) || defaultCampus;
   });
-  const status = useAsync(() => api.statusOverview(), []);
-  const registros = useAsync(() => api.registroData({ limit: 400 }), []);
+  const [refreshTick, setRefreshTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setRefreshTick((t) => t + 1), 5000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const status = useAsync(() => api.statusOverview(), [refreshTick]);
+  const registros = useAsync(() => api.registroData({ limit: 400 }), [refreshTick]);
 
   const regItems = registros.data?.items || [];
 
@@ -104,7 +110,7 @@ function App() {
     null;
 
   const selectedSensors = useMemo(() => {
-    return regItems
+    return Array.from(latestBySensor.values())
       .filter((r) => (selectedCampus ? r.estacionamiento_id?.startsWith(selectedCampus) : true))
       .sort((a, b) => {
         if (a.estado === b.estado) {
@@ -112,7 +118,7 @@ function App() {
         }
         return a.estado === "libre" ? -1 : 1;
       });
-  }, [regItems, selectedCampus]);
+  }, [latestBySensor, selectedCampus]);
 
   const handleCampusSelect = (code: string) => {
     setSelectedCampus(code);
@@ -174,7 +180,9 @@ function App() {
           </div>
           <div className="flex items-center gap-3 text-sm text-slate-600">
             <span className="inline-flex h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_0_6px_rgba(16,185,129,0.2)]"></span>
-            {status.loading || registros.loading ? "Actualizando datos…" : "Datos sincronizados"}
+            {(status.loading && !status.data) || (registros.loading && !registros.data)
+              ? "Actualizando datos…"
+              : "Datos sincronizados"}
           </div>
         </div>
       </header>
@@ -358,11 +366,10 @@ function App() {
                         </p>
                       </div>
                       <span
-                        className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                          sensor.estado === "libre"
+                        className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${sensor.estado === "libre"
                             ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
                             : "border border-red-200 bg-red-50 text-red-700"
-                        }`}
+                          }`}
                       >
                         {sensor.estado}
                       </span>
@@ -390,9 +397,8 @@ function App() {
               {campusCards.map((c) => (
                 <div
                   key={c.code}
-                  className={`relative overflow-hidden rounded-3xl border bg-white p-5 shadow-sm ${
-                    selectedCampus === c.code ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-100"
-                  }`}
+                  className={`relative overflow-hidden rounded-3xl border bg-white p-5 shadow-sm ${selectedCampus === c.code ? "border-indigo-400 ring-2 ring-indigo-200" : "border-slate-100"
+                    }`}
                 >
                   <div className={`absolute inset-x-4 top-0 h-1 rounded-full bg-gradient-to-r ${c.accent} opacity-80`} />
                   <div className="flex items-start justify-between gap-3">

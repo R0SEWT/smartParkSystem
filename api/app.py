@@ -1,8 +1,11 @@
 import os
+import contextlib
+import logging
+import time
+import uuid
 from datetime import datetime
 from importlib import import_module
-from flask import Flask, request, jsonify, make_response
-from flask_cors import CORS
+from flask import Flask, request, jsonify, make_response, g
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from pymongo.errors import PyMongoError
 from psycopg_pool import ConnectionPool
@@ -12,34 +15,104 @@ from pathlib import Path
 import sys
 
 
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+APPINSIGHTS_CONNECTION_STRING = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING") or os.environ.get(
+    "AZURE_MONITOR_CONNECTION_STRING"
+)
+
+logging.basicConfig(level=LOG_LEVEL)
+logger = logging.getLogger("smartpark.api")
+
+
+SMARTPARK_TESTING = os.environ.get("SMARTPARK_TESTING", "").lower() in {"1", "true", "yes"}
+
+
+def _configure_azure_monitor():
+    if not APPINSIGHTS_CONNECTION_STRING:
+        return
+
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+
+        configure_azure_monitor(connection_string=APPINSIGHTS_CONNECTION_STRING)
+        logger.info("azure_monitor_configured")
+    except Exception:
+        logger.exception("azure_monitor_config_failed")
+
+
+def _configure_json_logging():
+    try:
+        from pythonjsonlogger import jsonlogger
+    except Exception:
+        logger.warning("python_json_logger_not_installed")
+        return
+
+    class RequestContextFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            record.request_id = None
+            record.http_method = None
+            record.http_path = None
+            with contextlib.suppress(Exception):
+                record.request_id = getattr(g, "request_id", None)
+                record.http_method = request.method
+                record.http_path = request.path
+            return True
+
+    root = logging.getLogger()
+    root.setLevel(LOG_LEVEL)
+    root.addFilter(RequestContextFilter())
+
+    formatter = jsonlogger.JsonFormatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s %(request_id)s %(http_method)s %(http_path)s"
+    )
+    for handler in root.handlers:
+        if isinstance(handler, logging.StreamHandler):
+            handler.setFormatter(formatter)
+
+
+_configure_azure_monitor()
+_configure_json_logging()
+
+
 # ---- Config (Key Vault References en Azure inyectan variables) ----
 PG_CONN = os.environ.get("PG_CONN")
 MONGODB_URI = os.environ.get("MONGODB_URI")
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
-DEFAULT_ALLOWED_ORIGINS = "https://smartparksysten.azurewebsites.net"
+DEFAULT_ALLOWED_ORIGINS = "https://smartparksysten.azurewebsites.net,http://localhost:5173"
 raw_allowed_origins = os.environ.get("ALLOWED_ORIGINS", DEFAULT_ALLOWED_ORIGINS)
 
-if not PG_CONN:
-    raise RuntimeError("PG_CONN no está configurado")
-if not MONGODB_URI:
-    raise RuntimeError("MONGODB_URI no está configurado")
+if not SMARTPARK_TESTING:
+    if not PG_CONN:
+        logger.error("missing_env", extra={"env_var": "PG_CONN"})
+        raise RuntimeError("PG_CONN no está configurado")
+    if not MONGODB_URI:
+        logger.error("missing_env", extra={"env_var": "MONGODB_URI"})
+        raise RuntimeError("MONGODB_URI no está configurado")
 
 if raw_allowed_origins.strip() == "*":
     ALLOWED_ORIGINS = "*"
 else:
     ALLOWED_ORIGINS = [origin.strip() for origin in raw_allowed_origins.split(",") if origin.strip()]
 
-print(f"[BOOT] ALLOWED_ORIGINS={ALLOWED_ORIGINS}")
+logger.info("boot_allowed_origins", extra={"allowed_origins": ALLOWED_ORIGINS})
 
 # ---- Postgres Pool ----
-pg_pool = ConnectionPool(PG_CONN, min_size=1, max_size=6, kwargs={"autocommit": True})
+pg_pool: ConnectionPool | None = None
+if not SMARTPARK_TESTING:
+    pg_pool = ConnectionPool(PG_CONN, min_size=1, max_size=6, kwargs={"autocommit": True})
 
 # ---- Mongo Client ----
-mongo = MongoClient(MONGODB_URI, tlsCAFile=certifi.where(), connectTimeoutMS=20000, serverSelectionTimeoutMS=20000)
+mongo: MongoClient | None = None
+col_events_raw = None
+col_meta_sensors = None
+if not SMARTPARK_TESTING:
+    mongo = MongoClient(
+        MONGODB_URI, tlsCAFile=certifi.where(), connectTimeoutMS=20000, serverSelectionTimeoutMS=20000
+    )
 
-mdb = mongo["smartpark"]
-col_events_raw = mdb["events_raw"]
-col_meta_sensors = mdb["sensors_meta"]  # opcional para metadata por sensor
+    mdb = mongo["smartpark"]
+    col_events_raw = mdb["events_raw"]
+    col_meta_sensors = mdb["sensors_meta"]  # opcional para metadata por sensor
 
 
 
@@ -49,43 +122,68 @@ def _ensure_mongo_indexes():
         col_events_raw.create_index([("sensor_id", ASCENDING), ("ts", DESCENDING)], name="sid_ts")
         col_events_raw.create_index([("ts", DESCENDING)], name="ts_desc")
     except PyMongoError as e:
-        print(f"[WARN] creando índices mongo: {e}")
+        logger.warning("mongo_index_create_failed", extra={"error": str(e)})
 
-
-_ensure_mongo_indexes()
+if not SMARTPARK_TESTING:
+    _ensure_mongo_indexes()
+else:
+    logger.info("boot_testing_mode_enabled")
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}}, supports_credentials=True)
+
+
+@app.before_request
+def assign_request_context():
+    g.request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+    g.request_start = time.perf_counter()
+
+
+def _cors_allow_origin(origin: str | None) -> str | None:
+    if not origin:
+        return None
+    if ALLOWED_ORIGINS == "*":
+        # Con credenciales, usar el Origin explícito (no '*').
+        return origin
+    if isinstance(ALLOWED_ORIGINS, list) and origin in ALLOWED_ORIGINS:
+        return origin
+    return None
 
 
 @app.before_request
 def handle_preflight():
-    if request.method == "OPTIONS":
-        origin = request.headers.get("Origin", "")
-        allow_origin = origin or "*"
-        resp = make_response("", 200)
-        resp.headers["Access-Control-Allow-Origin"] = allow_origin
-        resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
-        resp.headers["Access-Control-Allow-Headers"] = request.headers.get(
-            "Access-Control-Request-Headers", "Content-Type,Authorization"
-        )
-        resp.headers["Access-Control-Allow-Credentials"] = "true"
-        resp.headers["Vary"] = "Origin"
-        return resp
+    if request.method != "OPTIONS":
+        return None
+
+    origin = request.headers.get("Origin")
+    allow_origin = _cors_allow_origin(origin)
+    if not allow_origin:
+        return make_response("", 403)
+
+    resp = make_response("", 200)
+    resp.headers["Access-Control-Allow-Origin"] = allow_origin
+    resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = request.headers.get(
+        "Access-Control-Request-Headers", "Content-Type,Authorization"
+    )
+    resp.headers["Access-Control-Allow-Credentials"] = "true"
+    resp.headers["Vary"] = "Origin"
+    return resp
 
 
 @app.after_request
 def ensure_cors_headers(response):
     origin = request.headers.get("Origin")
-    # Para forzar CORS en Azure App Service, devuelve siempre un ACAO. Si hay Origin, refléjalo; si no, usa *.
-    allow_origin = origin or "*"
-    response.headers["Access-Control-Allow-Origin"] = allow_origin
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Allow-Headers"] = (
-        request.headers.get("Access-Control-Request-Headers", "Content-Type,Authorization")
-    )
-    response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
-    response.headers["Vary"] = "Origin"
+    if allow_origin := _cors_allow_origin(origin):
+        response.headers["Access-Control-Allow-Origin"] = allow_origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Headers"] = (
+            request.headers.get("Access-Control-Request-Headers", "Content-Type,Authorization")
+        )
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+        response.headers["Vary"] = "Origin"
+
+    if request_id := getattr(g, "request_id", None):
+        response.headers["X-Request-ID"] = request_id
     return response
 
 
@@ -161,12 +259,16 @@ OPENAPI_SPEC = {
 
 # ---- Utilidades PG ----
 def pg_exec(sql: str, params=None):
+    if not pg_pool:
+        raise RuntimeError("Postgres no está configurado")
     with pg_pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
 
 
 def pg_fetchall(sql: str, params=None):
+    if not pg_pool:
+        raise RuntimeError("Postgres no está configurado")
     with pg_pool.connection() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
@@ -202,7 +304,7 @@ def healthzdb():
         "ok": ok,
         "postgres": pg_ok,
         "mongo": mongo_ok,
-        "errors": errors if not ok else None
+        "errors": None if ok else errors
     }), status
 
 
@@ -231,8 +333,12 @@ def sensor_event():
 
     # 1) Inserta crudo en Mongo
     try:
+        if not col_events_raw:
+            raise RuntimeError("mongo no está configurado")
         col_events_raw.insert_one(doc)
     except PyMongoError as e:
+        return jsonify({"ok": False, "error": f"mongo insert: {e}"}), 502
+    except Exception as e:
         return jsonify({"ok": False, "error": f"mongo insert: {e}"}), 502
 
     # 2) Normaliza en Postgres
@@ -261,9 +367,9 @@ def status_overview():
             .sort("ts", DESCENDING)
             .limit(5)
         )
-    except PyMongoError as e:
+    except Exception as e:
         last_events = []
-        print(f"[WARN] mongo read: {e}")
+        logger.warning("mongo_read_failed", extra={"error": str(e)})
 
     try:
         rows = pg_fetchall("""
@@ -285,7 +391,7 @@ def status_overview():
         ]
     except Exception as e:
         reg = []
-        print(f"[WARN] pg read: {e}")
+        logger.warning("pg_read_failed", extra={"error": str(e)})
 
     return jsonify({"last_events": last_events, "registro_data": reg})
 
@@ -307,8 +413,13 @@ def registro_data_list():
         where.append("estacionamiento_id = %s")
         params.append(estacionamiento_id)
     if sensor_id:
+        try:
+            sensor_id_int = int(sensor_id)
+        except ValueError:
+            return jsonify({"ok": False, "error": "sensor_id debe ser entero"}), 400
+
         where.append("sensor_id = %s")
-        params.append(int(sensor_id))
+        params.append(sensor_id_int)
 
     where_sql = f"WHERE {' AND '.join(where)}" if where else ""
     sql = f"""
@@ -363,6 +474,18 @@ def admin_reset():
     except Exception as e:
         return jsonify({"ok": False, "error": f"pg reset: {e}"}), 500
 
+    mongo_warnings = []
+    try:
+        if col_events_raw:
+            col_events_raw.delete_many({})
+    except Exception as e:
+        mongo_warnings.append(f"mongo events_raw reset: {e}")
+    try:
+        if col_meta_sensors:
+            col_meta_sensors.delete_many({})
+    except Exception as e:
+        mongo_warnings.append(f"mongo sensors_meta reset: {e}")
+
     try:
         seeds_mod = import_module("seed_basics")
         seed_postgres_fn = getattr(seeds_mod, "seed_postgres", None)
@@ -379,7 +502,7 @@ def admin_reset():
     except Exception as e:
         return jsonify({"ok": False, "error": f"seed error: {e}"}), 500
 
-    return jsonify({"ok": True, "seeded": True})
+    return jsonify({"ok": True, "seeded": True, "warnings": mongo_warnings or None})
 
 
 @app.get("/openapi.json")
@@ -389,7 +512,7 @@ def openapi_json():
 
 @app.get("/docs")
 def swagger_ui():
-    html = f"""
+        return f"""
     <!DOCTYPE html>
     <html>
       <head>
@@ -410,7 +533,6 @@ def swagger_ui():
       </body>
     </html>
     """
-    return html
 
 
 # ---- Entry ----

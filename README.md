@@ -2,6 +2,10 @@
 
 Servicios y herramientas para capturar eventos de sensores IoT de estacionamientos, persistir en PostgreSQL/MongoDB y exponer una API Flask desplegable en Azure App Service.
 
+**Demo rápido (Azure)**
+- Runbook paso a paso: [doc/runbook_demo.md](doc/runbook_demo.md)
+- Guion (3–5 min): [doc/demo_story.md](doc/demo_story.md)
+
 ## Requisitos
 - Python 3.10+
 - PostgreSQL con PostGIS
@@ -23,16 +27,25 @@ tools/             # scripts auxiliares para datos y simulación
   simulator.py
 ```
 
+## Documentación
+- [doc/README.md](doc/README.md) — hub (guías, ADRs, planes).
+- [doc/implementation.md](doc/implementation.md) — despliegue Azure.
+- [doc/observability.md](doc/observability.md) — Application Insights + KQL.
+- [doc/runbook_demo.md](doc/runbook_demo.md) — demo end-to-end.
+- [doc/demo_story.md](doc/demo_story.md) — guion corto para presentar.
+
 ## Uso local
 1. **API**
    ```bash
    cd api
    python -m venv .venv && source .venv/bin/activate
    pip install -r requirements.txt
-   # opcional: CORS para frontend en localhost:5173
-   export ALLOWED_ORIGINS=http://localhost:5173
+   # opcional: CORS (lista separada por coma). Default incluye localhost:5173 y el frontend Azure.
+   export ALLOWED_ORIGINS=http://localhost:5173,https://smartparksysten.azurewebsites.net
    # opcional: token para endpoint /admin/reset
    export ADMIN_TOKEN=superseguro
+   # opcional: observabilidad en Azure Application Insights
+   export APPLICATIONINSIGHTS_CONNECTION_STRING="InstrumentationKey=...;IngestionEndpoint=..."
    export PG_CONN="postgresql://pgadmin:PASS@HOST:5432/smartpark?sslmode=require"
    export MONGODB_URI="mongodb+srv://USER:PASS@CLUSTER/"
    python app.py  # o ./startup.sh
@@ -97,3 +110,10 @@ tools/             # scripts auxiliares para datos y simulación
   - Secreto `AZURE_WEBAPP_PUBLISH_PROFILE_API` con el *publish profile* de la Web App backend (`smartparksystemapi.azurewebsites.net`).
   - App Settings en Azure: `PG_CONN`, `MONGODB_URI`, `ALLOWED_ORIGINS` (incluye `https://smartparksysten.azurewebsites.net`), `ADMIN_TOKEN` (opcional) y cualquier var adicional.
 - **Ejecución**: dispara al hacer push en `api/**` o manualmente desde Actions. El zip despliega `app.py` y `startup.sh`; App Service detecta Python 3.10 y ejecuta `gunicorn`/`flask` según configuración.
+
+### Observabilidad (Azure Application Insights)
+- Configura `APPLICATIONINSIGHTS_CONNECTION_STRING` (o `AZURE_MONITOR_CONNECTION_STRING`) como App Setting en la Web App del backend.
+- La API exporta telemetría vía OpenTelemetry hacia Application Insights y añade `X-Request-ID` en cada respuesta para correlación.
+
+## Licencia
+MIT (ver [LICENSE](LICENSE)).

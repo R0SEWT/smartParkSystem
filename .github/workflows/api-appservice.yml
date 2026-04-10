@@ -33,6 +33,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Run smoke tests
+        run: |
+          SMARTPARK_TESTING=1 python -m unittest discover -s tests -p 'test_*.py' -q
+
       - name: Prepare artifact
         run: |
           mkdir -p ../build

@@ -19,7 +19,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 API_BASE = os.environ.get("API_BASE", "http://localhost:8080")
-ESTACIONAMIENTO = os.environ.get("SIM_EST", "EST-001")
+ESTACIONAMIENTO = os.environ.get("SIM_EST", "MON-1A")
 SIM_SENSOR_IDS = os.environ.get("SIM_SENSOR_IDS")
 PERIOD_SEC = float(os.environ.get("SIM_PERIOD", "2.0"))
 PG_CONN = os.environ.get("PG_CONN")  # opcional
@@ -45,10 +45,34 @@ def load_sensor_ids():
         with psycopg.connect(PG_CONN, row_factory=dict_row) as conn:
             cur = conn.cursor()
             cur.execute("SELECT id FROM sensor WHERE estacionamiento_id = %s;", (ESTACIONAMIENTO,))
-            rows = cur.fetchall()
-            if not rows:
-                raise RuntimeError(f"No se encontraron sensores para {ESTACIONAMIENTO}")
-            return [row["id"] for row in rows]
+            if rows := cur.fetchall():
+                return [row["id"] for row in rows]
+
+            # Fallback útil para demos: si el estacionamiento configurado no existe,
+            # elige el primero que tenga sensores y continúa.
+            cur.execute(
+                """
+                SELECT estacionamiento_id
+                FROM sensor
+                GROUP BY estacionamiento_id
+                ORDER BY estacionamiento_id
+                LIMIT 1;
+                """
+            )
+            fallback = cur.fetchone()
+            if fallback and fallback.get("estacionamiento_id"):
+                est = fallback["estacionamiento_id"]
+                cur.execute("SELECT id FROM sensor WHERE estacionamiento_id = %s;", (est,))
+                if rows := cur.fetchall():
+                    print(
+                        f"[INFO] SIM_EST={ESTACIONAMIENTO} no tiene sensores; usando {est} para la simulación"
+                    )
+                    return [row["id"] for row in rows]
+
+            raise RuntimeError(
+                f"No se encontraron sensores para SIM_EST={ESTACIONAMIENTO}. "
+                "Verifica que el seed haya corrido o define SIM_SENSOR_IDS."
+            )
 
     raise RuntimeError("Define SIM_SENSOR_IDS o PG_CONN para cargar sensores.")
 
