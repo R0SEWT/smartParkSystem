@@ -18,22 +18,25 @@ def build(output_base: Path) -> None:
     # Atributos de formato profesional
     graph_attr = {
         "fontsize": "16",
-        "pad": "0.5",
-        "nodesep": "0.8",
-        "ranksep": "1.2",
-        "fontname": "Helvetica",
-        "splines": "spline",
+        "pad": "0.7",
+        "nodesep": "0.9",
+        "ranksep": "1.5",
+        "fontname": "Helvetica-Bold",
+        "splines": "ortho",
+        "nodesep": "1",
+        "rankdir": "LR",
     }
 
     node_attr = {
-        "fontsize": "12",
+        "fontsize": "13",
         "fontname": "Helvetica",
     }
 
     edge_attr = {
-        "fontsize": "10",
-        "fontname": "Helvetica",
-        "color": "#5A5A5A",
+        "fontsize": "11",
+        "fontname": "Helvetica-Bold",
+        "color": "#333333",
+        "penwidth": "1.5",
     }
 
     with Diagram(
@@ -46,51 +49,55 @@ def build(output_base: Path) -> None:
         node_attr=node_attr,
         edge_attr=edge_attr,
     ):
-        with Cluster("Azure - Brazil South", graph_attr={"bgcolor": "#F4F8FA"}):
-            with Cluster("Web & Compute Tier", graph_attr={"bgcolor": "#FFFFFF"}):
-                frontend = AppServices("Frontend SPA\n(React, estáticos)")
-                api = AppServices("Backend API\n(Flask, Gunicorn)")
+        with Cluster("Usuarios y Simuladores", graph_attr={"bgcolor": "transparent", "penwidth": "0"}):
+            users = User("Usuarios\nWeb / Mobile")
+            simulator = Client("Simulador IoT\n(Python)")
 
-            with Cluster("Data Tier", graph_attr={"bgcolor": "#FFFFFF"}):
-                pg = DatabaseForPostgresqlServers(
-                    "PostgreSQL Flex Server\n(+ PostGIS)"
-                )
+        with Cluster("🚀 Azure - Brazil South", graph_attr={"bgcolor": "#F4F9FD", "style": "rounded", "pencolor": "#0078D4", "penwidth": "2"}):
+            
+            with Cluster("1. Web & Compute", graph_attr={"bgcolor": "#FFFFFF", "style": "rounded", "pencolor": "#7FBA00"}):
+                frontend = AppServices("Frontend SPA\n(React/Vite)")
+                api = AppServices("Backend API\n(Flask)")
+                
+                # Alinear frontend y api
+                frontend - Edge(style="invis") - api
 
-            with Cluster("Security & Observability", graph_attr={"bgcolor": "#FFFFFF"}):
-                kv = KeyVaults("Key Vault\n(Secretos DB/API)")
-                mon = ApplicationInsights("App Insights\n+ Log Analytics")
+            with Cluster("2. Data Services", graph_attr={"bgcolor": "#FFFFFF", "style": "rounded", "pencolor": "#FFB900"}):
+                pg = DatabaseForPostgresqlServers("PostgreSQL Flex\n(PostGIS + Catálogo)")
 
-            with Cluster("Async / Burst Ingestion (Opcional)", graph_attr={"style": "dashed", "bgcolor": "#FCFAFA"}):
-                fn_timer = FunctionApps("Timer Trigger\n(Ping/Sim)")
-                fn_http = FunctionApps("HTTP Trigger\n(/sensor_event)")
-                sb = ServiceBus("Service Bus\n(Colas/Topics)")
+            with Cluster("3. Security & Observability", graph_attr={"bgcolor": "#FFFFFF", "style": "rounded", "pencolor": "#5C2D91"}):
+                kv = KeyVaults("Key Vault\n(Secretos)")
+                mon = ApplicationInsights("Application Insights")
 
-        with Cluster("MongoDB Atlas", graph_attr={"bgcolor": "#FCFDFC"}):
-            mdb = MongoDB("MongoDB Cluster\n(M0 Tier)")
+            with Cluster("4. Optional: Async Burst", graph_attr={"bgcolor": "#FCFDFC", "style": "dashed,rounded"}):
+                fn_http = FunctionApps("HTTP Trigger\n(Fast Ingest)")
+                fn_timer = FunctionApps("Timer Trigger\n(Ping/Alive)")
+                sb = ServiceBus("Service Bus\n(Colas)")
 
-        with Cluster("Usuarios / Fuentes\n(Externo)", graph_attr={"bgcolor": "#ffffff", "color": "#ffffff"}):
-            users = User("Usuarios Web / App")
-            simulator = Client("Simulador IoT\n(Eventos)")
+        with Cluster("🍃 MongoDB Atlas", graph_attr={"bgcolor": "#F4FAF6", "style": "rounded", "pencolor": "#13AA52", "penwidth": "2"}):
+            mdb = MongoDB("Atlas Cluster\n(M0 Tier / Eventos)")
 
-        # Flujos de entrada principales
-        users >> Edge(label="HTTPS") >> frontend
-        frontend >> Edge(label="REST/JSON") >> api
-        simulator >> Edge(label="POST /sensor_event", color="#1B5E20") >> api
+        # Flujos de entrada principales (Usuarios)
+        users >> Edge(label=" HTTPS ", color="#0078D4", fontcolor="#0078D4") >> frontend
+        frontend >> Edge(label=" API REST ", color="#0078D4", fontcolor="#0078D4") >> api
+        
+        # Flujo de Simulador
+        simulator >> Edge(label=" POST /sensor_event ", color="#107C10", fontcolor="#107C10") >> api
 
-        # Interacciones API -> BD
-        api >> Edge(label="SQL\n(Catálogo)", color="#0D47A1") >> pg
-        api >> Edge(label="NoSQL\n(Histórico)", color="#0D47A1", style="dashed") >> mdb
+        # Interacciones API -> Bases de datos
+        api >> Edge(label=" SQL (Config) ", color="#FF8C00", fontcolor="#D83B01") >> pg
+        api >> Edge(label=" BSON (Histórico) ", color="#13AA52", fontcolor="#13AA52") >> mdb
 
-        # Interacciones Management
-        api >> Edge(style="dotted", label="Lee secretos") >> kv
-        api >> Edge(style="dotted", label="Trazas / Logs") >> mon
-        pg >> Edge(style="dotted", label="Métricas") >> mon
+        # Governance & Observability (Dotted)
+        api >> Edge(style="dotted", label=" Env Vars", color="#5C2D91", fontcolor="#5C2D91") >> kv
+        api >> Edge(style="dotted", label=" Telemetry ", color="#5C2D91", fontcolor="#5C2D91") >> mon
+        pg >> Edge(style="dotted", label=" Metrics ", color="#5C2D91", fontcolor="#5C2D91") >> mon
 
-        # Flujos asíncronos / alternativos
-        simulator >> Edge(style="dashed", color="#E65100", label="Alt") >> fn_http
-        fn_timer >> Edge(style="dashed", color="#E65100", label="Ping in") >> fn_http
-        fn_http >> Edge(style="dashed", color="#E65100", label="Encola") >> sb
-        sb >> Edge(style="dashed", color="#E65100", label="API env") >> api
+        # Opcional (Asíncrono)
+        simulator >> Edge(style="dashed", color="#D83B01", fontcolor="#D83B01", label=" HTTP ") >> fn_http
+        fn_timer >> Edge(style="dashed", color="#D83B01", fontcolor="#D83B01", label=" Ping ") >> fn_http
+        fn_http >> Edge(style="dashed", color="#D83B01", fontcolor="#D83B01", label=" Messages ") >> sb
+        sb >> Edge(style="dashed", color="#D83B01", fontcolor="#D83B01", label=" Pull ") >> api
 
 
 def main() -> None:
