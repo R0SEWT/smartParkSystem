@@ -16,6 +16,7 @@ Este directorio contiene la documentación viva del proyecto (“doc-as-code”)
 
 ## Diagramas
 - [Arquitectura (Mermaid)](../arch_demo_deploy_az.mermaid)
+- [Arquitectura (mingrammer/diagrams)](../tools/diagram_arch_demo_deploy_az.py) — genera `doc/assets/arch_demo_deploy_az_diagrams.png` (deps opcionales: `tools/requirements-diagrams.txt`).
 - [Mongo](mongo_diagram.mmd)
 - [PostgreSQL](posgress_diagram.erd)
 

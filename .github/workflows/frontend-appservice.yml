@@ -12,6 +12,7 @@ env:
   NODE_VERSION: "20"
   WEBAPP_NAME: "smartparksysten"
   API_BASE: "https://smartparksystemapi.azurewebsites.net"
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
 
 jobs:
   build-and-deploy:
@@ -46,6 +47,52 @@ jobs:
           zip -r ../front-dist.zip .
 
       - name: Deploy to Azure Web App
+        if: ${{ secrets.AZURE_CLIENT_ID != '' && vars.AZURE_RESOURCE_GROUP != '' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to staging slot (OIDC)
+        if: ${{ secrets.AZURE_CLIENT_ID != '' && vars.AZURE_RESOURCE_GROUP != '' }}
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            set -euo pipefail
+            az webapp deployment source config-zip \
+              -g "$AZURE_RESOURCE_GROUP" \
+              -n "$WEBAPP_NAME" \
+              --slot staging \
+              --src "$GITHUB_WORKSPACE/frontend/front-dist.zip"
+
+      - name: Smoke check (staging slot)
+        if: ${{ secrets.AZURE_CLIENT_ID != '' && vars.AZURE_RESOURCE_GROUP != '' }}
+        run: |
+          set -euo pipefail
+          BASE="https://${WEBAPP_NAME}-staging.azurewebsites.net"
+          for i in {1..30}; do
+            if curl -fsS "$BASE/" > /dev/null; then
+              break
+            fi
+            echo "Waiting for staging slot to be ready ($i/30)..."
+            sleep 5
+          done
+
+      - name: Swap staging -> production (OIDC)
+        if: ${{ secrets.AZURE_CLIENT_ID != '' && vars.AZURE_RESOURCE_GROUP != '' }}
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            set -euo pipefail
+            az webapp deployment slot swap \
+              -g "$AZURE_RESOURCE_GROUP" \
+              -n "$WEBAPP_NAME" \
+              --slot staging \
+              --target-slot production
+
+      - name: Deploy to Azure Web App (publish profile)
+        if: ${{ !(secrets.AZURE_CLIENT_ID != '' && vars.AZURE_RESOURCE_GROUP != '' ) }}
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ env.WEBAPP_NAME }}

@@ -47,7 +47,7 @@ param mongodbUri string
 param adminToken string
 
 @description('CORS allowlist (comma-separated origins)')
-param allowedOrigins string = 'https://${frontendWebAppName}.azurewebsites.net'
+param allowedOrigins string = 'https://${frontendWebAppName}.azurewebsites.net,https://${frontendWebAppName}-staging.azurewebsites.net'
 
 @description('Retention (days) for Log Analytics')
 param logRetentionDays int = 30
@@ -216,6 +216,49 @@ resource apiApp 'Microsoft.Web/sites@2022-09-01' = {
   }
 }
 
+resource apiStagingSlot 'Microsoft.Web/sites/slots@2022-09-01' = {
+  name: '${apiApp.name}/staging'
+  location: location
+  kind: 'app,linux'
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {
+    serverFarmId: appPlan.id
+    httpsOnly: true
+    siteConfig: {
+      linuxFxVersion: 'PYTHON|3.10'
+      appCommandLine: './startup.sh'
+      appSettings: [
+        {
+          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+          value: '1'
+        }
+        {
+          name: 'PG_CONN'
+          value: '@Microsoft.KeyVault(SecretUri=${kvUri}secrets/PG_CONN/)'
+        }
+        {
+          name: 'MONGODB_URI'
+          value: '@Microsoft.KeyVault(SecretUri=${kvUri}secrets/MONGODB_URI/)'
+        }
+        {
+          name: 'ADMIN_TOKEN'
+          value: '@Microsoft.KeyVault(SecretUri=${kvUri}secrets/ADMIN_TOKEN/)'
+        }
+        {
+          name: 'ALLOWED_ORIGINS'
+          value: allowedOrigins
+        }
+        {
+          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+          value: appInsights.properties.ConnectionString
+        }
+      ]
+    }
+  }
+}
+
 resource frontendApp 'Microsoft.Web/sites@2022-09-01' = {
   name: frontendWebAppName
   location: location
@@ -226,6 +269,26 @@ resource frontendApp 'Microsoft.Web/sites@2022-09-01' = {
     siteConfig: {
       linuxFxVersion: 'NODE|20-lts'
       // Serve SPA static assets deployed to /home/site/wwwroot
+      appCommandLine: 'pm2 serve /home/site/wwwroot 8080 --no-daemon --spa'
+      appSettings: [
+        {
+          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+          value: '0'
+        }
+      ]
+    }
+  }
+}
+
+resource frontendStagingSlot 'Microsoft.Web/sites/slots@2022-09-01' = {
+  name: '${frontendApp.name}/staging'
+  location: location
+  kind: 'app,linux'
+  properties: {
+    serverFarmId: appPlan.id
+    httpsOnly: true
+    siteConfig: {
+      linuxFxVersion: 'NODE|20-lts'
       appCommandLine: 'pm2 serve /home/site/wwwroot 8080 --no-daemon --spa'
       appSettings: [
         {
@@ -250,8 +313,20 @@ resource kvSecretsUserAssignment 'Microsoft.Authorization/roleAssignments@2022-0
   }
 }
 
+resource kvSecretsUserAssignmentStaging 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, apiStagingSlot.identity.principalId, kvSecretsUserRoleId)
+  scope: keyVault
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', kvSecretsUserRoleId)
+    principalId: apiStagingSlot.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 output apiUrl string = 'https://${apiApp.properties.defaultHostName}'
 output frontendUrl string = 'https://${frontendApp.properties.defaultHostName}'
+output apiStagingUrl string = 'https://${apiStagingSlot.properties.defaultHostName}'
+output frontendStagingUrl string = 'https://${frontendStagingSlot.properties.defaultHostName}'
 output postgresFqdn string = postgres.properties.fullyQualifiedDomainName
 output keyVaultVaultUri string = kvUri
 output appInsightsName string = appInsights.name
