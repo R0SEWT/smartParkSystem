@@ -217,9 +217,8 @@ __marimo__/
 .streamlit/secrets.toml
 
 azure.config
-.log 
-.env
-api/db_init.sql
-api/db_init.sql
 frontend/SmartParkSysten.PublishSettings
 api/app-smartpark-api.PublishSettings
+
+# Keep DB schema versioned for reproducible demo and CI reset flow
+!api/db_init.sql

@@ -6,6 +6,14 @@ Servicios y herramientas para capturar eventos de sensores IoT de estacionamient
 - Runbook paso a paso: [doc/runbook_demo.md](doc/runbook_demo.md)
 - Guion (3–5 min): [doc/demo_story.md](doc/demo_story.md)
 
+## Arquitectura y despliegue
+
+![SmartParkSystem - Arquitectura y despliegue](doc/assets/arch_demo_deploy_az_diagrams.png)
+
+Fuentes:
+- [Diagrama Mermaid](arch_demo_deploy_az.mermaid)
+- [Generador (mingrammer/diagrams)](tools/diagram_arch_demo_deploy_az.py)
+
 ## Requisitos
 - Python 3.10+
 - PostgreSQL con PostGIS
